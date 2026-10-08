@@ -1,0 +1,28 @@
+# Environment & Secrets
+*.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# Java / Spring Boot
+target/
+*.class
+*.jar
+*.war
+
+# IDE & OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+*.log
