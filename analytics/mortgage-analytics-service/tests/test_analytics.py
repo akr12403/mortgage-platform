@@ -1,6 +1,6 @@
 import pytest
 import pandas as pd
-from src.analytics.portfolio import compute_portfolio_summary
+from src.analytics.portfolio import compute_portfolio_summary, compute_borrower_risk_summary, compute_payment_trends
 
 def test_analytics_delinquency_rate():
     # Known dataset: 2 active, 1 delinquent -> 33.33% delinquency rate
