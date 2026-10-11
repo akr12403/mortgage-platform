@@ -7,8 +7,10 @@ client = TestClient(app)
 def test_health_check():
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "healthy"}
+    data = response.json()
+    assert data["status"] == "UP"
+    assert data["service"] == "mortgage-analytics-service"
 
 def test_get_portfolio_summary():
     response = client.get("/api/v1/analytics/summary")
-    assert response.status_code in [200, 404]  # Depending on test seed data
+    assert response.status_code in [200, 404]
