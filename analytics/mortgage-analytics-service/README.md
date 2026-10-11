@@ -13,6 +13,14 @@ The analytics engine (`src/analytics/portfolio.py`) processes normalized DataFra
 * **Borrower Risk Summary**: Aggregated metrics grouped by `borrower_external_id`, computing total active mortgages, sum of outstanding balances, and total delinquent loans[cite: 4].
 * **Payment Trends**: Monthly payment aggregations using `pd.Grouper` on `paid_date`, summing the total posted amount and computing the on-time ratio (`paid_date <= due_date`)[cite: 4].
 
+## Local Testing (Without AWS)
+
+This service uses `boto3` to interact with AWS S3. For local development and automated testing without real AWS credentials, we use **moto** to mock S3 interactions in-memory.
+
+### Running Tests
+To run tests with mocked AWS services:
+```powershell
+pytest
 
 ## Local Setup
 ```powershell
