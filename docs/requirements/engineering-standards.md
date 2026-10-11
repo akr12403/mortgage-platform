@@ -1,9 +1,20 @@
 # Engineering Standards & Git Conventions
 
-## 1. Branching Strategy
-- **`main`**: Protected production branch. No direct commits allowed.
-- **`develop`**: Integration branch for ongoing work. No direct commits allowed.
-- **`feature/*`**: Topic branches for individual tasks or stories.
+## 1. Branching Strategy & Workflow
+We follow a GitFlow-inspired branching strategy:
+- **`main`**: Production-ready code. Direct commits are strictly prohibited.
+- **`develop`**: Primary integration branch for active development. Direct commits are strictly prohibited.
+- **`feature/<ticket-or-milestone>-<short-description>`**: Topic branches created off `develop`.
+- **`fix/<description>`**: Bug fix branches targeted at resolving issues in `develop`.
+
+# Engineering Standards & Code Review Checklist
+
+## Code Review Checklist
+Before any Pull Request can be merged to `develop` or `main`, reviewers must verify:
+- [ ] **Security**: No hardcoded credentials, API keys, or connection strings; inputs are parameterized/validated.
+- [ ] **Tests**: Unit or integration tests are included or updated; all CI checks pass.
+- [ ] **No Secrets**: Secret scanning reports zero leaks.
+- [ ] **Migration Review**: Database schema changes include rollback/idempotency safety checks and are verified via local seed/reset scripts.
 
 ### Branch Naming Pattern
 - `feature/<ticket-or-milestone>-<short-description>`
