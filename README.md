@@ -8,8 +8,8 @@ The Enterprise Mortgage Platform is an event-driven, microservices-based system 
 
 | ID | Milestone | Week | Doc | Status |
 | --- | --- | --- | --- | --- |
-| **M1** | Foundation & Architecture | 1 | [docs/requirements/project-scope.md](docs/requirements/project-scope.md) | **Completed** |
-| **M2** | Agile & Data Foundation | 2 | `docs/milestones/m02.md` | Planned |
+| **M1** | Foundation & Architecture | 1 | `docs/milestones/m01.md` | **Completed** |
+| **M2** | Agile & Data Foundation | 2 | `docs/milestones/m02.md` | **Completed**  |
 | **M3** | Python Analytics | 3 | `docs/milestones/m03.md` | Planned |
 | **M4** | Java / Spring Backend | 4–5 | `docs/milestones/m04.md` | Planned |
 | **M5** | Microservices & Events | 6 | `docs/milestones/m05.md` | Planned |
@@ -41,6 +41,31 @@ All foundational requirements and baseline architecture documentation created du
 - **Data Flow (Document Upload Trace)**: [docs/architecture/data-flow.md](docs/architecture/data-flow.md)
 - **Trust Boundaries & Security Controls**: [docs/architecture/trust-boundaries.md](docs/architecture/trust-boundaries.md)
 
+
+
+## 🚀 Milestone 2 Status: COMPLETED
+Milestone 2 establishes the core database foundation, synthetic data seeding, operational query workflows, and DevSecOps baseline guardrails.
+
+### Summary of Completed Components
+- **Database Architecture & Migrations (`/database`)**: 
+  - Full relational schema covering 7 core entities (Borrowers, Mortgages, Loans, Payments, Delinquencies, Servicing History, and Document Metadata) utilizing PostgreSQL and `pgcrypto`.
+  - Automated local development reset and seed utility (`reset-dev-db.ps1`).
+- **Synthetic Data & Seeding (`database/seed/`)**: 
+  - Faker-compliant synthetic datasets containing representative borrower profiles, active loans, and delinquency cases (`MTG-1001`, `MTG-1002`, `MTG-1005`).
+- **Operational Queries & Lab Artifacts (`database/scripts/`)**: 
+  - Borrower-to-loan joins, outstanding balance aggregations, and delinquency reporting views.
+  - Performance documentation (`docs/architecture/query-notes.md`) featuring index optimization on `servicing_history(event_time)` to eliminate sequential scan overhead.
+- **DevSecOps Baseline (`docs/operations/devsecops-baseline.md`)**: 
+  - GitHub branch protection rules enforced on `main` and `develop` (requiring pull requests, approvals, and status checks).
+  - Minimum CI pipeline stub (`.gitlab-ci.yml`) for validation and secret scanning hooks.
+  - Standardized code review checklists and PR templates.
+
+---
+
+## 🛠️ Local Development & Reset Workflow
+To reset and seed your local PostgreSQL environment:
+```powershell
+.\database\scripts\reset-dev-db.ps1
 ---
 
 ## Getting Started & Engineering Standards
