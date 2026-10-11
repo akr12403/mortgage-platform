@@ -1,6 +1,6 @@
 import pytest
 from fastapi import HTTPException
-from src.services.normalization_service import normalize_mortgages, normalize_payments
+from src.services.normalization_service import normalize_mortgages, normalize_payments, normalize_borrowers
 
 def test_normalization_bad_status():
     data = [
