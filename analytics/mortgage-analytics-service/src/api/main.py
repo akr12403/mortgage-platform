@@ -2,7 +2,7 @@ import uuid
 import logging
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
-from src.api.routes import analytics
+from src.api.routes import analytics, documents
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -42,3 +42,4 @@ def health_check():
 
 # Include analytics router
 app.include_router(analytics.router)
+app.include_router(documents.router)
