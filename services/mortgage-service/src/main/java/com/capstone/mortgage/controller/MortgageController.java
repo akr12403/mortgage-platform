@@ -3,6 +3,7 @@ package com.capstone.mortgage.controller;
 import com.capstone.mortgage.entity.Mortgage;
 import com.capstone.mortgage.entity.Payment;
 import com.capstone.mortgage.service.MortgageService;
+import com.capstone.mortgage.service.PaymentService;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -17,9 +18,11 @@ import java.util.List;
 public class MortgageController {
 
     private final MortgageService mortgageService;
+    private final PaymentService paymentService;
 
-    public MortgageController(MortgageService mortgageService) {
+    public MortgageController(MortgageService mortgageService, PaymentService paymentService) {
         this.mortgageService = mortgageService;
+        this.paymentService = paymentService;
     }
 
     @PostMapping
@@ -42,18 +45,20 @@ public class MortgageController {
         return ResponseEntity.ok(mortgages);
     }
 
-    @PostMapping("/{id}/payments")
-    public ResponseEntity<Payment> postPayment(
-            @PathVariable Long id,
-            @Valid @RequestBody Payment payment,
-            @RequestHeader(value = "X-Correlation-Id", required = false) String correlationId) {
-        Payment savedPayment = mortgageService.processPayment(id, payment);
-        return new ResponseEntity<>(savedPayment, HttpStatus.CREATED);
-    }
-
     @GetMapping("/{id}/payments")
     public ResponseEntity<List<Payment>> getPayments(@PathVariable Long id) {
         List<Payment> payments = mortgageService.getPaymentsByMortgage(id);
         return ResponseEntity.ok(payments);
+    }
+
+    @PostMapping("/{id}/payments")
+    public ResponseEntity<Payment> createPayment(
+            @PathVariable Long id,
+            @Valid @RequestBody Payment payment,
+            @RequestHeader(value = "X-Correlation-Id", required = false) String correlationId) {
+
+        // Log or use correlationId if needed for tracing
+        Payment savedPayment = paymentService.processPayment(id, payment);
+        return ResponseEntity.ok(savedPayment);
     }
 }

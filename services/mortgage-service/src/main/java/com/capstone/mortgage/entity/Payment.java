@@ -1,6 +1,9 @@
 package com.capstone.mortgage.entity;
 
 import jakarta.persistence.*;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import com.fasterxml.jackson.annotation.JsonBackReference;
@@ -18,15 +21,20 @@ public class Payment {
     @JsonBackReference
     private Mortgage mortgage;
 
+    @NotNull(message = "Due date is mandatory")
     @Column(name = "due_date", nullable = false)
     private LocalDate dueDate;
 
+    @NotNull(message = "Paid date is mandatory")
     @Column(name = "paid_date", nullable = false)
     private LocalDate paidDate;
 
+    @NotNull(message = "Amount is mandatory")
+    @DecimalMin(value = "0.01", message = "Amount must be greater than zero")
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal amount;
 
+    @NotBlank(message = "Status is mandatory")
     @Column(nullable = false)
     private String status;
 
