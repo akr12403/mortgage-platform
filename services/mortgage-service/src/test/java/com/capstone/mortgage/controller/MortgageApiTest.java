@@ -78,6 +78,7 @@ class MortgageApiTest {
         Payment payment = new Payment();
         payment.setAmount(new BigDecimal("1500.00"));
         payment.setPaidDate(LocalDate.now());
+        payment.setDueDate(LocalDate.now());
         payment.setStatus("COMPLETED");
 
         when(paymentService.processPayment(eq(1L), any(Payment.class))).thenReturn(payment);
