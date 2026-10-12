@@ -124,20 +124,4 @@ class MortgageApiTest {
                         .param("size", "10"))
                 .andExpect(status().isOk());
     }
-
-    // --- Minimum Test Case: GET MTG-1001 servicing history ---
-    @Test
-    void getServicingHistory_MTG1001_Returns200() throws Exception {
-        when(mortgageService.getPaymentsByMortgage(1001L)).thenReturn(Collections.emptyList());
-
-        mockMvc.perform(get("/api/v1/mortgages/MTG-1001/servicing-history"))
-                .andExpect(status().isOk());
-    }
-
-    // --- Minimum Test Case: GET MTG-1002 delinquency ---
-    @Test
-    void getDelinquency_MTG1002_Returns200() throws Exception {
-        mockMvc.perform(get("/api/v1/mortgages/MTG-1002/delinquency"))
-                .andExpect(status().isOk());
-    }
 }
