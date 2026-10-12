@@ -23,10 +23,10 @@ public class BorrowerController {
         return new ResponseEntity<>(saved, HttpStatus.CREATED);
     }
 
-    @GetMapping("/{id}")
-    public ResponseEntity<Borrower> getBorrowerById(@PathVariable Long id) {
-        Borrower borrower = borrowerRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Borrower not found with id: " + id));
+    @GetMapping("/{borrowerExternalId}")
+    public ResponseEntity<Borrower> getBorrowerByExternalId(@PathVariable String borrowerExternalId) {
+        Borrower borrower = borrowerRepository.findByBorrowerExternalId(borrowerExternalId)
+                .orElseThrow(() -> new RuntimeException("Borrower not found with external id: " + borrowerExternalId));
         return ResponseEntity.ok(borrower);
     }
 }
