@@ -1,6 +1,6 @@
 spring:
   datasource:
-    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/servicing_intel_dev
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/mortgage_intel
     username: ${POSTGRES_USER:mortgage_app}
     password: ${POSTGRES_PASSWORD:postgres}
   jpa:
