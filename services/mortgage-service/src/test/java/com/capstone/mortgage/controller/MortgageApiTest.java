@@ -51,12 +51,15 @@ class MortgageApiTest {
                 .andExpect(jsonPath("$.id").value(1));
     }
 
+    // --- Updated Endpoint 1: GET unknown mortgage (Expects 404) ---
     @Test
-    void getMortgageById_NotFound_ReturnsError() throws Exception {
-        when(mortgageService.getMortgageById(999L)).thenThrow(new RuntimeException("Not found"));
+    void getMortgageById_NotFound_Returns404() throws Exception {
+        // Maps to the minimum test case: GET unknown mortgage -> 404
+        when(mortgageService.getMortgageById(999L))
+                .thenThrow(new jakarta.persistence.EntityNotFoundException("Mortgage not found"));
 
         mockMvc.perform(get("/api/v1/mortgages/999"))
-                .andExpect(status().isInternalServerError());
+                .andExpect(status().isNotFound());
     }
 
     // --- Endpoint 2: POST /api/v1/mortgages ---
@@ -119,6 +122,22 @@ class MortgageApiTest {
                         .param("borrowerId", "100")
                         .param("page", "0")
                         .param("size", "10"))
+                .andExpect(status().isOk());
+    }
+
+    // --- Minimum Test Case: GET MTG-1001 servicing history ---
+    @Test
+    void getServicingHistory_MTG1001_Returns200() throws Exception {
+        when(mortgageService.getPaymentsByMortgage(1001L)).thenReturn(Collections.emptyList());
+
+        mockMvc.perform(get("/api/v1/mortgages/MTG-1001/servicing-history"))
+                .andExpect(status().isOk());
+    }
+
+    // --- Minimum Test Case: GET MTG-1002 delinquency ---
+    @Test
+    void getDelinquency_MTG1002_Returns200() throws Exception {
+        mockMvc.perform(get("/api/v1/mortgages/MTG-1002/delinquency"))
                 .andExpect(status().isOk());
     }
 }
