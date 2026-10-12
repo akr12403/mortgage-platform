@@ -30,4 +30,10 @@ public class GlobalExceptionHandler {
         ErrorResponse error = new ErrorResponse("INTERNAL_ERROR", ex.getMessage(), getCorrelationId());
         return new ResponseEntity<>(error, HttpStatus.INTERNAL_SERVER_ERROR);
     }
+
+    @ExceptionHandler(jakarta.persistence.EntityNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleEntityNotFound(jakarta.persistence.EntityNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse("NOT_FOUND", ex.getMessage(), getCorrelationId());
+        return new ResponseEntity<>(error, HttpStatus.NOT_FOUND);
+    }
 }
