@@ -25,6 +25,9 @@ public class Mortgage {
     @Column(name = "property_address", nullable = false)
     private String propertyAddress;
 
+    @Column(name = "outstanding_balance", precision = 12, scale = 2)
+    private BigDecimal outstandingBalance;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "borrower_id", nullable = false)
     @com.fasterxml.jackson.annotation.JsonBackReference
@@ -40,6 +43,9 @@ public class Mortgage {
     // Getters and Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+
+    public BigDecimal getOutstandingBalance() { return outstandingBalance; }
+    public void setOutstandingBalance(BigDecimal outstandingBalance) { this.outstandingBalance = outstandingBalance; }
 
     public BigDecimal getLoanAmount() { return loanAmount; }
     public void setLoanAmount(BigDecimal loanAmount) { this.loanAmount = loanAmount; }
