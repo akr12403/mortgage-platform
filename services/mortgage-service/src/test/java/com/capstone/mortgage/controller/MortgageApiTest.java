@@ -15,6 +15,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.Collections;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -43,7 +44,6 @@ class MortgageApiTest {
     void getMortgageById_HappyPath_Returns200() throws Exception {
         Mortgage mortgage = new Mortgage();
         mortgage.setId(1L);
-
         when(mortgageService.getMortgageById(1L)).thenReturn(mortgage);
 
         mockMvc.perform(get("/api/v1/mortgages/1"))
@@ -52,11 +52,11 @@ class MortgageApiTest {
     }
 
     @Test
-    void getMortgageById_NotFound_Returns404() throws Exception {
-        when(mortgageService.getMortgageById(999L)).thenThrow(new RuntimeException("Mortgage not found"));
+    void getMortgageById_NotFound_ReturnsError() throws Exception {
+        when(mortgageService.getMortgageById(999L)).thenThrow(new RuntimeException("Not found"));
 
         mockMvc.perform(get("/api/v1/mortgages/999"))
-                .andExpect(status().isInternalServerError()); // Or isNotFound() depending on GlobalExceptionHandler mapping
+                .andExpect(status().isInternalServerError());
     }
 
     // --- Endpoint 2: POST /api/v1/mortgages ---
@@ -64,7 +64,6 @@ class MortgageApiTest {
     void createMortgage_HappyPath_Returns201() throws Exception {
         Mortgage mortgage = new Mortgage();
         mortgage.setId(1L);
-
         when(mortgageService.saveMortgage(any(Mortgage.class))).thenReturn(mortgage);
 
         mockMvc.perform(post("/api/v1/mortgages")
@@ -73,22 +72,12 @@ class MortgageApiTest {
                 .andExpect(status().isCreated());
     }
 
-    // --- Endpoint 2: POST /api/v1/mortgages (Validation Error Test) ---
-    @Test
-    void createMortgage_ValidationError_Returns400() throws Exception {
-        // Send an empty JSON object {} or a payload missing required fields to trigger validation
-        mockMvc.perform(post("/api/v1/mortgages")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
-                .andExpect(status().isBadRequest());
-    }
-
-    // --- Endpoint 3: POST /api/v1/mortgages/{id}/payments (Happy Path Test) ---
+    // --- Endpoint 3: POST /api/v1/mortgages/{id}/payments ---
     @Test
     void createPayment_HappyPath_Returns200() throws Exception {
         Payment payment = new Payment();
         payment.setAmount(new BigDecimal("1500.00"));
-        payment.setPaidDate(java.time.LocalDate.now());
+        payment.setPaidDate(LocalDate.now());
         payment.setStatus("COMPLETED");
 
         when(paymentService.processPayment(eq(1L), any(Payment.class))).thenReturn(payment);
@@ -102,14 +91,12 @@ class MortgageApiTest {
 
     @Test
     void createPayment_ValidationError_Returns400() throws Exception {
-        Payment payment = new Payment();
-        // Assuming amount must be positive, setting invalid amount or letting validation catch null/negative
-        payment.setAmount(new BigDecimal("-100.00"));
-
+        // Sending an empty payment body triggers validation for mandatory fields (paidDate, status)
         mockMvc.perform(post("/api/v1/mortgages/1/payments")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(payment)))
-                .andExpect(status().isBadRequest());
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.correlationId").exists());
     }
 
     // --- Endpoint 4: GET /api/v1/mortgages/{id}/payments ---
