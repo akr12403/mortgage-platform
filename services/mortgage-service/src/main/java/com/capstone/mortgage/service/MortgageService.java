@@ -30,7 +30,7 @@ public class MortgageService {
 
     public Mortgage getMortgageById(Long id) {
         return mortgageRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Mortgage not found with id: " + id));
+                .orElseThrow(() -> new jakarta.persistence.EntityNotFoundException("Mortgage not found with id: " + id));
     }
 
     public Mortgage saveMortgage(Mortgage mortgage) {
