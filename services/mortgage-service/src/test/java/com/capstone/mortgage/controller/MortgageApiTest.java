@@ -76,10 +76,10 @@ class MortgageApiTest {
     // --- Endpoint 2: POST /api/v1/mortgages (Validation Error Test) ---
     @Test
     void createMortgage_ValidationError_Returns400() throws Exception {
-        // Pass a malformed JSON string or an empty body to ensure it triggers validation or parsing failure
+        // Send an empty JSON object {} or a payload missing required fields to trigger validation
         mockMvc.perform(post("/api/v1/mortgages")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{invalid-json}"))
+                        .content("{}"))
                 .andExpect(status().isBadRequest());
     }
 
@@ -93,7 +93,6 @@ class MortgageApiTest {
 
         when(paymentService.processPayment(eq(1L), any(Payment.class))).thenReturn(payment);
 
-        // Your controller method createPayment returns ResponseEntity.ok(savedPayment), which is 200 OK!
         mockMvc.perform(post("/api/v1/mortgages/1/payments")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(payment))
