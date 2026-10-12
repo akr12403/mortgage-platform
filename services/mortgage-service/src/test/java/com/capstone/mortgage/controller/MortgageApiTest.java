@@ -73,20 +73,24 @@ class MortgageApiTest {
                 .andExpect(status().isCreated());
     }
 
+    // --- Fix for Endpoint 2: POST /api/v1/mortgages (Validation Error) ---
     @Test
     void createMortgage_ValidationError_Returns400() throws Exception {
-        // Sending invalid or empty body to trigger validation failure
+        // Send a mortgage payload with invalid/negative values to trigger validation failure
+        String invalidMortgageJson = "{\"loanAmount\": -50000.00}";
+
         mockMvc.perform(post("/api/v1/mortgages")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
+                        .content(invalidMortgageJson))
                 .andExpect(status().isBadRequest());
     }
 
-    // --- Endpoint 3: POST /api/v1/mortgages/{id}/payments ---
+    // --- Fix for Endpoint 3: POST /api/v1/mortgages/{id}/payments (Happy Path) ---
     @Test
     void createPayment_HappyPath_Returns200() throws Exception {
         Payment payment = new Payment();
         payment.setAmount(new BigDecimal("1500.00"));
+        payment.setPaidDate(java.time.LocalDate.now()); // Include the mandatory paid date!
 
         when(paymentService.processPayment(eq(1L), any(Payment.class))).thenReturn(payment);
 
