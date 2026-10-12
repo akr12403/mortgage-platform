@@ -29,6 +29,7 @@ public class Borrower {
     private LocalDate dateOfBirth;
 
     @OneToMany(mappedBy = "borrower", cascade = CascadeType.ALL, orphanRemoval = true)
+    @com.fasterxml.jackson.annotation.JsonManagedReference
     private List<Mortgage> mortgages;
 
     public Borrower() {}
