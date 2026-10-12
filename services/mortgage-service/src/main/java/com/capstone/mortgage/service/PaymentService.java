@@ -9,6 +9,7 @@ import com.capstone.mortgage.repository.ServicingHistoryRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Service
@@ -37,8 +38,13 @@ public class PaymentService {
         Payment savedPayment = paymentRepository.save(payment);
 
         // 3. Update mortgage outstanding balance
-        if (mortgage.getOutstandingBalance() != null) {
-            mortgage.setOutstandingBalance(mortgage.getOutstandingBalance().subtract(payment.getAmount()));
+        // 3. Update mortgage outstanding balance (fall back to loanAmount if balance is null)
+        BigDecimal currentBalance = mortgage.getOutstandingBalance() != null
+                ? mortgage.getOutstandingBalance()
+                : mortgage.getLoanAmount();
+
+        if (currentBalance != null) {
+            mortgage.setOutstandingBalance(currentBalance.subtract(payment.getAmount()));
             mortgageRepository.save(mortgage);
         }
 
