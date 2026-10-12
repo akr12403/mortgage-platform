@@ -3,6 +3,7 @@ package com.capstone.servicing.service;
 import com.capstone.servicing.entity.ServicingHistory;
 import com.capstone.servicing.repository.ServicingHistoryRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional; // 1. Import this
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -33,6 +34,7 @@ public class ServicingService {
         );
     }
 
+    @Transactional
     public ServicingHistory createServicingEvent(Long mortgageId, String eventType, String description) {
         ServicingHistory event = new ServicingHistory();
         event.setMortgageId(mortgageId);
