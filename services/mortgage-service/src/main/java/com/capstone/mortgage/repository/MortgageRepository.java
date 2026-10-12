@@ -11,7 +11,7 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface MortgageRepository extends JpaRepository<Mortgage, Long> {
 
-    @Query(value = "SELECT m FROM Mortgage m LEFT JOIN FETCH m.payments WHERE m.borrowerId = :borrowerId",
-            countQuery = "SELECT count(m) FROM Mortgage m WHERE m.borrowerId = :borrowerId")
+    @Query(value = "SELECT m FROM Mortgage m LEFT JOIN FETCH m.payments WHERE m.borrower.id = :borrowerId",
+            countQuery = "SELECT count(m) FROM Mortgage m WHERE m.borrower.id = :borrowerId")
     Page<Mortgage> findByBorrowerId(@Param("borrowerId") Long borrowerId, Pageable pageable);
 }
