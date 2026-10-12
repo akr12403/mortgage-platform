@@ -2,6 +2,8 @@ package com.capstone.mortgage.entity;
 
 import jakarta.persistence.*;
 import java.math.BigDecimal;
+import java.util.List;
+import com.fasterxml.jackson.annotation.JsonManagedReference;
 
 @Entity
 @Table(name = "mortgages")
@@ -28,6 +30,10 @@ public class Mortgage {
     @com.fasterxml.jackson.annotation.JsonBackReference
     private Borrower borrower;
 
+    @OneToMany(mappedBy = "mortgage", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @JsonManagedReference
+    private List<Payment> payments;
+
     // Default constructor
     public Mortgage() {}
 
@@ -49,4 +55,7 @@ public class Mortgage {
 
     public Borrower getBorrower() { return borrower; }
     public void setBorrower(Borrower borrower) { this.borrower = borrower; }
+
+    public List<Payment> getPayments() { return payments; }
+    public void setPayments(List<Payment> payments) { this.payments = payments; }
 }
