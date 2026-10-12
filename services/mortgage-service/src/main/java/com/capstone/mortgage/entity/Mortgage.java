@@ -25,6 +25,7 @@ public class Mortgage {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "borrower_id", nullable = false)
+    @com.fasterxml.jackson.annotation.JsonBackReference
     private Borrower borrower;
 
     // Default constructor
