@@ -18,4 +18,8 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,readiness
+        include: health, info
+  endpoint:
+    health:
+      probes:
+        enabled: true
