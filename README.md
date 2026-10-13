@@ -9,9 +9,9 @@ The Enterprise Mortgage Platform is an event-driven, microservices-based system 
 | ID | Milestone | Week | Doc | Status |
 | --- | --- | --- | --- | --- |
 | **M1** | Foundation & Architecture | 1 | `docs/milestones/m01.md` | **Completed** |
-| **M2** | Agile & Data Foundation | 2 | `docs/milestones/m02.md` | **Completed**  |
-| **M3** | Python Analytics | 3 | `docs/milestones/m03.md` | Planned |
-| **M4** | Java / Spring Backend | 4–5 | `docs/milestones/m04.md` | Planned |
+| **M2** | Agile & Data Foundation | 2 | `docs/milestones/m02.md` | **Completed** |
+| **M3** | Python Analytics | 3 | `docs/milestones/m03.md` | **Completed** |
+| **M4** | Java / Spring Backend | 4–5 | `docs/milestones/m04.md` | **Completed** |
 | **M5** | Microservices & Events | 6 | `docs/milestones/m05.md` | Planned |
 | **M6** | Security Engineering | 7–8 | `docs/milestones/m06.md` | Planned |
 | **M7** | AI / RAG Assistant | 9 | `docs/milestones/m07.md` | Planned |
@@ -41,7 +41,7 @@ All foundational requirements and baseline architecture documentation created du
 - **Data Flow (Document Upload Trace)**: [docs/architecture/data-flow.md](docs/architecture/data-flow.md)
 - **Trust Boundaries & Security Controls**: [docs/architecture/trust-boundaries.md](docs/architecture/trust-boundaries.md)
 
-
+---
 
 ## 🚀 Milestone 2 Status: COMPLETED
 Milestone 2 establishes the core database foundation, synthetic data seeding, operational query workflows, and DevSecOps baseline guardrails.
@@ -62,27 +62,36 @@ Milestone 2 establishes the core database foundation, synthetic data seeding, op
 
 ---
 
+## 🚀 Milestone 3 Status: COMPLETED
+Milestone 3 implements the Python-based data analytics and portfolio processing pipelines for aggregation, compliance reporting, and automation support.
+
+### Summary of Completed Components
+- **Data Processing & Analytics Scripts**: 
+  - Python scripts utilizing optimized data structures (`defaultdict`, pandas) to parse campaign data, aggregate metrics, and compute access review durations.
+- **Financial & Portfolio Simulation Tools**: 
+  - Automated data utilities for processing loan metrics, validation datasets, and analytics support across backend services.
+
+---
+
+## 🚀 Milestone 4 Status: COMPLETED
+Milestone 4 delivers the core Java / Spring Boot microservices backend (`mortgage-service` and `servicing-service`), full REST API implementation, JPA persistence, transaction management, structured logging, and automated test coverage.
+
+### Summary of Completed Components
+- **Microservices Architecture (`mortgage-service` & `servicing-service`)**: 
+  - Multi-service Spring Boot application topology running locally on ports `8080` and `8081`.
+- **Domain Model & JPA Entities**: 
+  - Fully implemented relational JPA entities (`Borrower`, `Mortgage`, `Payment`, `ServicingHistory`) with constraint validation (`@Valid`, `@NotNull`, `@NotBlank`, `@DecimalMin`).
+- **RESTful Endpoints & Business Logic**: 
+  - Borrower registration (`/api/v1/borrowers`), mortgage creation and pagination (`/api/v1/mortgages`), atomic payment processing with automatic balance updates (`/api/v1/mortgages/{id}/payments`), servicing history tracking, and risk/delinquency evaluation (`/api/v1/mortgages/{id}/delinquency`).
+- **Observability & Traceability**: 
+  - Structured request logging with custom correlation ID (`X-Correlation-Id`) tracking across system components.
+  - Actuator health and readiness endpoint configuration.
+- **Automated Testing & Quality Assurance**: 
+  - Comprehensive unit and integration test suites (`mvn test`) passing successfully across controllers, services, and database layers.
+
+---
+
 ## 🛠️ Local Development & Reset Workflow
 To reset and seed your local PostgreSQL environment:
 ```powershell
 .\database\scripts\reset-dev-db.ps1
----
-
-## Getting Started & Engineering Standards
-
-Before contributing to this repository, review our core engineering practices and setup guidelines:
-
-1. Read the **[Engineering Standards](docs/requirements/engineering-standards.md)** to understand code review rules, testing benchmarks, and zero-secrets policies.
-2. Follow our **Git Workflow**:
-   - Primary integration branch: `develop`
-   - Production branch: `main`
-   - Feature branches: `feature/<milestone>-<short-description>` (e.g., `feature/M1-root-readme`)
-   - Commit convention: `type(scope): summary` (e.g., `docs(requirements): update README with milestone traceability`)
-
----
-
-## Project Repository Information
-
-- **Repository Remote URL**: [https://github.com/akr12403/mortgage-platform](https://github.com/akr12403/mortgage-platform)
-- **Team Members**:
-  - Akshay Kasthurirangan
