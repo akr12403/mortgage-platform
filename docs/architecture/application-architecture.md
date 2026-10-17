@@ -1,27 +1,32 @@
 ## Overview
 This document defines the logical microservice components, data persistence tiers, messaging integrations, and inter-service communication patterns for the Enterprise Mortgage Platform.
 
+---
+
 ## Application Architecture Diagram
 
 ```mermaid
 graph TB
     %% Ingress & Consumer Layer
     subgraph Edge ["Ingress & Client Layer"]
-        CLIENT[Portal UI / API Consumer\n(Web / CLI Placeholder)]
-        GW[API Gateway / Ingress Router\n:8080]
+        CLIENT[Portal UI / API Consumer\n(PowerShell / Postman / CLI)]
     end
 
     %% Microservices Layer
-    subgraph CoreServices ["Core Services Layer"]
-        MS[Mortgage Service\n:8080]
-        SS[Servicing Service\n:8081]
-        AS[Mortgage Analytics Service\n:8082]
-        AI[Mortgage Knowledge Assistant\n:8083]
+    subgraph CoreServices ["Core Microservices Layer"]
+        MS[mortgage-service\n(Port 8080)]
+        SS[servicing-service\n(Port 8081)]
+        AS[mortgage-analytics-service\n(Port 8000 - Planned/M3)]
+        AI[mortgage-knowledge-assistant\n(Port 8001 - Planned/M7)]
     end
 
-    %% Messaging Integration Placeholder
-    subgraph Integration ["Event Streaming Tier"]
-        MB[Message Broker / Event Bus\n(RabbitMQ / Kafka Placeholder)]
+    %% Messaging Integration Tier (Milestone 5)
+    subgraph Integration ["Event-Driven Messaging Tier (SNS / SQS)"]
+        SNS[AWS SNS Topic:\ncapstone-mortgage-lifecycle-dev]
+        SQS[AWS SQS Queue:\ncapstone-mortgage-servicing-dev]
+        DLQ[SQS Dead Letter Queue:\ncapstone-mortgage-servicing-dlq-dev]
+        SNS -->|Dispatches Events| SQS
+        SQS -.->|Failed Deliveries after Max Retries| DLQ
     end
 
     %% Persistence Layer
@@ -31,21 +36,19 @@ graph TB
         OBJ[(Cloud Object Storage\nS3 / Local Storage)]
     end
 
-    %% Interaction Paths (Synchronous REST)
-    CLIENT -->|HTTPS / REST| GW
-    GW -->|HTTP / REST| MS
-    GW -->|HTTP / REST| SS
-    GW -->|HTTP / REST| AS
-    GW -->|HTTP / REST| AI
+    %% Synchronous Interaction Paths (HTTP REST)
+    CLIENT -->|HTTP REST /api/v1/borrowers| MS
+    CLIENT -->|HTTP REST /api/v1/mortgages| MS
+    CLIENT -->|HTTP REST /api/v1/mortgages/{id}/servicing-history| SS
+    CLIENT -->|HTTP REST /api/v1/mortgages/{id}/delinquency| SS
 
     %% Data Store Interactions
-    MS -->|JDBC / SQL| DB
-    SS -->|JDBC / SQL| DB
+    MS -->|JPA / JDBC SQL| DB
+    SS -->|JPA / JDBC SQL| DB
     AS -->|Read-Only SQL| DB
     AI -->|Vector Indexing & Retrieval| VDB
-    MS -.->|Document Upload Path| OBJ
+    MS -.->|Document Uploads| OBJ
 
-    %% Asynchronous Event Streams (Planned)
-    MS -.->|Publish Loan Events| MB
-    SS -.->|Publish Payment Events| MB
-    MB -.->|Consume Events| AS
+    %% Asynchronous Event Streams (Milestone 5)
+    MS -->|Publish Lifecycle Events\n(MortgageCreated, PaymentReceived, PaymentMissed)| SNS
+    SQS -->|Consume Events| SS
