@@ -1,0 +1,173 @@
+openapi: 3.0.3
+info:
+  title: Mortgage Service API
+  version: v1
+  description: Core origination, borrower management, and payment transaction APIs for the Enterprise Mortgage Platform.
+servers:
+  - url: http://localhost:8080/api/v1
+paths:
+  /borrowers:
+    post:
+      summary: Register a new borrower
+      operationId: registerBorrower
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BorrowerRequest'
+      responses:
+        '201':
+          description: Borrower created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorrowerResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+  /mortgages:
+    post:
+      summary: Create a new mortgage application
+      operationId: createMortgage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MortgageRequest'
+      responses:
+        '201':
+          description: Mortgage created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MortgageResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+  /mortgages/{id}/payments:
+    post:
+      summary: Post a payment against a mortgage
+      operationId: postPayment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Mortgage Business ID (e.g., MTG-1001)
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRequest'
+      responses:
+        '200':
+          description: Payment posted successfully and balance updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+
+components:
+  schemas:
+    BorrowerRequest:
+      type: object
+      required: [firstName, lastName, email, phone]
+      properties:
+        firstName:
+          type: string
+          example: Jane
+        lastName:
+          type: string
+          example: Doe
+        email:
+          type: string
+          example: jane.doe@example.com
+        phone:
+          type: string
+          example: 555-0199
+    BorrowerResponse:
+      type: object
+      properties:
+        borrowerId:
+          type: string
+          example: BOR-001
+        firstName:
+          type: string
+        lastName:
+          type: string
+    MortgageRequest:
+      type: object
+      required: [borrowerExternalId, originalAmount, propertyAddress]
+      properties:
+        borrowerExternalId:
+          type: string
+          example: BOR-001
+        originalAmount:
+          type: number
+          format: double
+          example: 320000.00
+        propertyAddress:
+          type: string
+          example: 123 Maple Street, Fairfax, VA
+    MortgageResponse:
+      type: object
+      properties:
+        mortgageExternalId:
+          type: string
+          example: MTG-1010
+        status:
+          type: string
+          example: PENDING
+        originalAmount:
+          type: number
+          format: double
+    PaymentRequest:
+      type: object
+      required: [paymentAmount, paidDate]
+      properties:
+        paymentAmount:
+          type: number
+          format: double
+          example: 1850.00
+        paidDate:
+          type: string
+          format: date
+          example: 2026-03-02
+    PaymentResponse:
+      type: object
+      properties:
+        paymentId:
+          type: string
+        outstandingBalanceAfter:
+          type: number
+          format: double
+          example: 317650.00
+    ErrorEnvelope:
+      type: object
+      properties:
+        code:
+          type: string
+          example: MORTGAGE_NOT_FOUND
+        message:
+          type: string
+          example: Mortgage MTG-9999 was not found
+        correlationId:
+          type: string
+          example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+        timestamp:
+          type: string
+          format: date-time
+          example: 2026-03-15T14:30:00Z
+  responses:
+      ErrorResponse:
+        description: Standard error response envelope matching project standards
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ErrorEnvelope'
