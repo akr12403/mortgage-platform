@@ -44,3 +44,13 @@ We have formally decided to decompose the platform into **loosely coupled, indep
 ### Negative / Trade-offs (Mitigations)
 - **Eventual Consistency**: Asynchronous event publishing means downstream consumers (like `servicing-service`) experience slight replication delays, requiring idempotency handling (`event_inbox` deduplication tables).
 - **Operational Complexity**: Managing containerized multi-service deployments, local environment variables, and message broker infrastructure (LocalStack / AWS SNS/SQS) requires additional tooling and runbooks.
+
+## API Breaking Change Policy & Consumer Expectations
+
+### Breaking Change Policy (`v1`)
+All REST API contracts under `/api/v1/` adhere to strict semantic versioning rules. Non-breaking changes (such as adding optional request/response properties) may be introduced in-place. Any breaking modifications—including field removals, renaming required parameters, altering error envelope structures, or changing endpoint URI paths—require introducing a new major version prefix (`/api/v2/`), maintaining backward compatibility for downstream consumers for a deprecation window of at least one release cycle.
+
+### Consumer-Driven Contract: Mortgage ID Expectations
+Downstream services (specifically `servicing-service`) enforce strict consumer expectations regarding identifiers produced by `mortgage-service`:
+- **Mortgage Identifier Format**: Must match the regular expression pattern `MTG-\d{4}` (e.g., `MTG-1001`) as defined in the master engineering standards.
+- **Correlation ID Propagation**: Both services enforce mandatory propagation of the `X-Correlation-Id` UUID header from the incoming HTTP request through to structured logs and asynchronous event headers.

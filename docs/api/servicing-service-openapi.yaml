@@ -1,0 +1,108 @@
+openapi: 3.0.3
+info:
+  title: Servicing Service API
+  version: v1
+  description: Post-closing servicing audit logs, history tracking, and delinquency risk evaluations for the Enterprise Mortgage Platform.
+servers:
+  - url: http://localhost:8081/api/v1
+paths:
+  /mortgages/{id}/servicing-history:
+    get:
+      summary: Retrieve chronological servicing history events for a mortgage
+      operationId: getServicingHistory
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Mortgage Business ID conforming to MTG-{4 digits} format
+          schema:
+            type: string
+            example: MTG-1001
+      responses:
+        '200':
+          description: List of servicing history audit events retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ServicingEventDto'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+  /mortgages/{id}/delinquency:
+    get:
+      summary: Evaluate real-time delinquency status and risk metrics for a mortgage
+      operationId: getDelinquencyStatus
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Mortgage Business ID conforming to MTG-{4 digits} format
+          schema:
+            type: string
+            example: MTG-1002
+      responses:
+        '200':
+          description: Delinquency status evaluated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DelinquencyResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+
+components:
+  schemas:
+    ServicingEventDto:
+      type: object
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+          example: PaymentReceived
+        eventTime:
+          type: string
+          format: date-time
+        details:
+          type: string
+          example: Payment of 1850.00 processed successfully.
+    DelinquencyResponse:
+      type: object
+      properties:
+        mortgageExternalId:
+          type: string
+          example: MTG-1002
+        status:
+          type: string
+          example: DELINQUENT
+        daysPastDue:
+          type: int32
+          example: 45
+        severity:
+          type: string
+          example: MODERATE
+    ErrorEnvelope:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SERVICING_RECORD_NOT_FOUND
+        message:
+          type: string
+          example: Servicing history for mortgage MTG-9999 was not found
+        correlationId:
+          type: string
+          example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+        timestamp:
+          type: string
+          format: date-time
+          example: 2026-03-15T14:30:00Z
+  responses:
+      ErrorResponse:
+        description: Standard error response envelope
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ErrorEnvelope'
