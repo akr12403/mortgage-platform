@@ -11,6 +11,9 @@ public class ServicingHistory {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "event_id")
+    private String eventId; // Added for event tracking / traceability
+
     @Column(name = "mortgage_id", nullable = false)
     private Long mortgageId;
 
@@ -28,6 +31,9 @@ public class ServicingHistory {
     // Getters and Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+
+    public String getEventId() { return eventId; }
+    public void setEventId(String eventId) { this.eventId = eventId; }
 
     public Long getMortgageId() { return mortgageId; }
     public void setMortgageId(Long mortgageId) { this.mortgageId = mortgageId; }
