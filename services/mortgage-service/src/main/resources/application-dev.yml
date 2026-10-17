@@ -7,3 +7,9 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: true
+
+aws:
+  region: us-east-1
+  endpoint-url: http://localhost:4566
+  sns:
+    topic-arn: arn:aws:sns:us-east-1:000000000000:capstone-mortgage-lifecycle-dev

@@ -28,3 +28,9 @@ management:
     health:
       probes:
         enabled: true
+
+aws:
+  region: ${AWS_REGION:us-east-1}
+  endpoint-url: ${AWS_ENDPOINT_URL:http://localhost:4566}
+  sns:
+    topic-arn: ${SNS_TOPIC_ARN:arn:aws:sns:us-east-1:000000000000:capstone-mortgage-lifecycle-dev}

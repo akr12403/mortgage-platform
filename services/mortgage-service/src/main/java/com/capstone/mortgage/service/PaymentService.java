@@ -3,6 +3,7 @@ package com.capstone.mortgage.service;
 import com.capstone.mortgage.entity.Mortgage;
 import com.capstone.mortgage.entity.Payment;
 import com.capstone.mortgage.entity.ServicingHistory;
+import com.capstone.mortgage.events.EventPayloads;
 import com.capstone.mortgage.repository.MortgageRepository;
 import com.capstone.mortgage.repository.PaymentRepository;
 import com.capstone.mortgage.repository.ServicingHistoryRepository;
@@ -18,13 +19,16 @@ public class PaymentService {
     private final PaymentRepository paymentRepository;
     private final MortgageRepository mortgageRepository;
     private final ServicingHistoryRepository servicingHistoryRepository;
+    private final EventPublisherService eventPublisher; // Added event publisher
 
     public PaymentService(PaymentRepository paymentRepository,
                           MortgageRepository mortgageRepository,
-                          ServicingHistoryRepository servicingHistoryRepository) {
+                          ServicingHistoryRepository servicingHistoryRepository,
+                          EventPublisherService eventPublisher) {
         this.paymentRepository = paymentRepository;
         this.mortgageRepository = mortgageRepository;
         this.servicingHistoryRepository = servicingHistoryRepository;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -37,7 +41,6 @@ public class PaymentService {
         payment.setMortgage(mortgage);
         Payment savedPayment = paymentRepository.save(payment);
 
-        // 3. Update mortgage outstanding balance
         // 3. Update mortgage outstanding balance (fall back to loanAmount if balance is null)
         BigDecimal currentBalance = mortgage.getOutstandingBalance() != null
                 ? mortgage.getOutstandingBalance()
@@ -55,6 +58,15 @@ public class PaymentService {
         history.setDescription("Payment of " + payment.getAmount() + " posted successfully.");
         history.setCreatedAt(LocalDateTime.now());
         servicingHistoryRepository.save(history);
+
+        // 5. Publish PaymentReceived event via SNS
+        var payload = new EventPayloads.PaymentReceivedPayload(
+                "MTG-" + mortgage.getId(),
+                payment.getAmount(),
+                payment.getPaidDate(),
+                mortgage.getOutstandingBalance()
+        );
+        eventPublisher.publishEvent("PaymentReceived", payload);
 
         return savedPayment;
     }
