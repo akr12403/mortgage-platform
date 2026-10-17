@@ -55,7 +55,7 @@
             <artifactId>sns</artifactId>
         </dependency>
         <dependency>
-            <groupId>software.amazon.awssdk</groupId>ar
+            <groupId>software.amazon.awssdk</groupId>
             <artifactId>sqs</artifactId>
         </dependency>
 
