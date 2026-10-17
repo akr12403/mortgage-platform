@@ -1,10 +1,11 @@
-# Stage 1: Build using official Maven image
+# Stage 1: Build the application
 FROM maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /app
 COPY . .
-RUN mvn clean package -pl services/servicing-service -DskipTests
+WORKDIR /app/services/servicing-service
+RUN mvn clean package -DskipTests
 
-# Stage 2: Lightweight runtime image
+# Stage 2: Runtime image
 FROM eclipse-temurin:17-jre-jammy
 WORKDIR /app
 RUN useradd -ms /bin/bash appuser
