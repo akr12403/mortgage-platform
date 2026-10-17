@@ -1,11 +1,10 @@
-# Stage 1: Build the application
-FROM eclipse-temurin:17-jdk-jammy AS build
+# Stage 1: Build using official Maven image
+FROM maven:3.9.6-eclipse-temurin-17-jammy AS build
 WORKDIR /app
 COPY . .
-# Build mortgage-service using Maven wrapper
 RUN mvn clean package -pl services/mortgage-service -DskipTests
 
-# Stage 2: Runtime image
+# Stage 2: Lightweight runtime image
 FROM eclipse-temurin:17-jre-jammy
 WORKDIR /app
 RUN useradd -ms /bin/bash appuser
