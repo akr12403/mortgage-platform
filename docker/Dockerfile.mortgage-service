@@ -1,0 +1,15 @@
+# Stage 1: Build the application
+FROM eclipse-temurin:17-jdk-jammy AS build
+WORKDIR /app
+COPY . .
+# Build mortgage-service using Maven wrapper
+RUN ./mvnw clean package -pl services/mortgage-service -DskipTests
+
+# Stage 2: Runtime image
+FROM eclipse-temurin:17-jre-jammy
+WORKDIR /app
+RUN useradd -ms /bin/bash appuser
+USER appuser
+COPY --from=build /app/services/mortgage-service/target/*.jar app.jar
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "app.jar"]

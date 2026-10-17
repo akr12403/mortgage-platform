@@ -1,0 +1,14 @@
+# Stage 1: Build the application
+FROM eclipse-temurin:17-jdk-jammy AS build
+WORKDIR /app
+COPY . .
+RUN ./mvnw clean package -pl services/servicing-service -DskipTests
+
+# Stage 2: Runtime image
+FROM eclipse-temurin:17-jre-jammy
+WORKDIR /app
+RUN useradd -ms /bin/bash appuser
+USER appuser
+COPY --from=build /app/services/servicing-service/target/*.jar app.jar
+EXPOSE 8081
+ENTRYPOINT ["java", "-jar", "app.jar"]
