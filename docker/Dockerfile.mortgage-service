@@ -3,7 +3,7 @@ FROM eclipse-temurin:17-jdk-jammy AS build
 WORKDIR /app
 COPY . .
 # Build mortgage-service using Maven wrapper
-RUN ./mvnw clean package -pl services/mortgage-service -DskipTests
+RUN mvn clean package -pl services/mortgage-service -DskipTests
 
 # Stage 2: Runtime image
 FROM eclipse-temurin:17-jre-jammy
