@@ -1,0 +1,13 @@
+{
+  "eventId": "550e8400-e29b-41d4-a716-446655440003",
+  "eventType": "PaymentReceived",
+  "schemaVersion": "1.0",
+  "occurredAt": "2026-03-15T14:30:00Z",
+  "correlationId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "payload": {
+    "mortgageExternalId": "MTG-1001",
+    "paymentAmount": 1850.0,
+    "paidDate": "2026-03-02",
+    "outstandingBalanceAfter": 317650.0
+  }
+}
