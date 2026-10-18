@@ -8,25 +8,34 @@ from src.analytics.portfolio import compute_portfolio_summary, compute_borrower_
 
 router = APIRouter(prefix="/api/v1/analytics", tags=["analytics"])
 
+import traceback
+import logging
+
+logger = logging.getLogger(__name__)
+
 @router.get("/portfolio-summary")
 def get_portfolio_summary(request: Request, db: Session = Depends(get_db)):
     correlation_id = getattr(request.state, "correlation_id", None)
-    repo = MortgageRepository(db)
-    
-    # Fetch raw records and normalize
-    raw_mortgages = repo.get_portfolio_summary_raw() if hasattr(repo, "get_portfolio_summary_raw") else []
-    # Alternatively, fetch using a broad query or standard repository method
-    # Let's use raw query/fetchall from repo if needed, or create a helper in repository:
-    # Let's add a helper method in MortgageRepository for all mortgages if not present, 
-    # or query directly using SQLAlchemy text.
-    
-    # Let's fetch all mortgages for Pandas normalization
-    mortgages_query = db.execute(text("SELECT id, mortgage_external_id, status, outstanding_balance FROM mortgages")).fetchall()
-    raw_list = [dict(row._mapping) for row in mortgages_query]
-    
-    norm_df = normalize_mortgages(raw_list, correlation_id=correlation_id)
-    summary = compute_portfolio_summary(norm_df)
-    return summary
+    try:
+        repo = MortgageRepository(db)
+        
+        mortgages_query = db.execute(text("SELECT id, mortgage_external_id, status, outstanding_balance FROM mortgages")).fetchall()
+        raw_list = [dict(row._mapping) for row in mortgages_query]
+        
+        norm_df = normalize_mortgages(raw_list, correlation_id=correlation_id)
+        summary = compute_portfolio_summary(norm_df)
+        return summary
+    except Exception as e:
+        tb = traceback.format_exc()
+        logger.error(f"[{correlation_id}] Portfolio summary error: {tb}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": str(e),
+                "traceback": tb,
+                "correlationId": correlation_id
+            }
+        )
 
 @router.get("/delinquency")
 def get_delinquencies(request: Request, db: Session = Depends(get_db)):
