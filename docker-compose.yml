@@ -87,7 +87,7 @@ analytics-service:
       - POSTGRES_PORT=5432
       - POSTGRES_DB=mortgage_intel
       - POSTGRES_USER=mortgage_app
-      - POSTGRES_PASSWORD=change-me
+      - POSTGRES_PASSWORD=postgres
       - AWS_ENDPOINT_URL=http://localstack:4566
     depends_on:
       postgres:
