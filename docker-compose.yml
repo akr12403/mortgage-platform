@@ -77,8 +77,8 @@ services:
 
   analytics-service:
       build:
-        context: ./analytics/mortgage-analytics-service
-        dockerfile: Dockerfile
+        context: .
+        dockerfile: docker/Dockerfile.analytics-service
       container_name: analytics-service
       ports:
         - "8000:8000"
