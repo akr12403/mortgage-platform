@@ -39,7 +39,7 @@ public class EventPublisherService {
                     .messageAttributes(Map.of(
                             "eventType", MessageAttributeValue.builder()
                                     .dataType("String")
-                                    .stringVal(eventType)
+                                    .stringValue(eventType)
                                     .build()
                     ))
                     .build();
