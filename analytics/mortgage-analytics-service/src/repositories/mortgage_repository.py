@@ -12,7 +12,7 @@ class MortgageRepository:
                 SUM(CASE WHEN m.status = 'ACTIVE' THEN 1 ELSE 0 END) as active_mortgages,
                 SUM(CASE WHEN m.status = 'DELINQUENT' THEN 1 ELSE 0 END) as delinquent_mortgages,
                 SUM(m.outstanding_balance) as outstanding_balance_total
-            FROM mortgage m
+            FROM mortgages m
         """)
         result = self.db.execute(query).fetchone()
         return dict(result._mapping) if result else {}
@@ -25,7 +25,7 @@ class MortgageRepository:
                 d.delinquent_since,
                 d.days_past_due,
                 d.severity
-            FROM mortgage m
+            FROM mortgages m
             JOIN delinquency d ON d.mortgage_id = m.id
             WHERE m.status = 'DELINQUENT'
         """)
@@ -56,8 +56,8 @@ class MortgageRepository:
                 COUNT(m.id) as total_mortgages,
                 SUM(m.outstanding_balance) as total_outstanding_balance,
                 SUM(CASE WHEN m.status = 'DELINQUENT' THEN 1 ELSE 0 END) as delinquent_count
-            FROM borrower b
-            LEFT JOIN mortgage m ON m.borrower_id = b.id
+            FROM borrowers b
+            LEFT JOIN mortgages m ON m.borrower_id = b.id
             WHERE b.borrower_external_id = :borrower_id
             GROUP BY b.borrower_external_id, b.first_name, b.last_name
         """)

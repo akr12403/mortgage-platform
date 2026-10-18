@@ -21,7 +21,7 @@ def get_portfolio_summary(request: Request, db: Session = Depends(get_db)):
     # or query directly using SQLAlchemy text.
     
     # Let's fetch all mortgages for Pandas normalization
-    mortgages_query = db.execute(text("SELECT id, mortgage_external_id, status, outstanding_balance FROM mortgage")).fetchall()
+    mortgages_query = db.execute(text("SELECT id, mortgage_external_id, status, outstanding_balance FROM mortgages")).fetchall()
     raw_list = [dict(row._mapping) for row in mortgages_query]
     
     norm_df = normalize_mortgages(raw_list, correlation_id=correlation_id)
