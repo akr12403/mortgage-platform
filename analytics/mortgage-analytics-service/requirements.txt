@@ -7,3 +7,4 @@ boto3
 pytest
 httpx
 python-dotenv
+python-multipart
