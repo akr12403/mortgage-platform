@@ -1,17 +1,38 @@
-# Messaging & Event-Driven Architecture Runbook
+# Messaging and Event-Driven Architecture Runbook
 
-## Overview
-The Enterprise Mortgage Platform utilizes an asynchronous, event-driven pattern combining **AWS SNS** for event publishing and **AWS SQS** for reliable message fan-out and consumption across downstream microservices.
+## Local Topology
 
-## Queue Topology & Settings
+The local stack uses LocalStack SNS/SQS. Compose initializes the lifecycle topic, servicing queue, DLQ, and SNS-to-SQS subscription with `localstack/init/ready.d/01-create-mortgage-messaging.sh`.
 
-| Queue Name | Target Consumer | Purpose | Key DLQ / Timeout Settings |
-| :--- | :--- | :--- | :--- |
-| **`capstone-mortgage-servicing-dev`**[cite: 4] | `servicing-service`[cite: 4] | Consumes lifecycle events (`MortgageCreated`, `PaymentReceived`, etc.) to write audit logs. | Visibility Timeout $\ge$ 30s<br>`maxReceiveCount` = 3[cite: 4] |
-| **`capstone-mortgage-analytics-dev`**[cite: 4] | `analytics-service`[cite: 4] | Handles analytical calculations and cache refreshes.[cite: 4] | Visibility Timeout = 30s<br>`maxReceiveCount` = 3 |
-| **`capstone-mortgage-servicing-dlq-dev`**[cite: 4] | Manual Replay[cite: 4] | Captures poisoned or repeatedly failing messages after max retries. | Manual inspection & replay workflow[cite: 4] |
+| Resource | Name | Purpose |
+| --- | --- | --- |
+| SNS topic | `capstone-mortgage-lifecycle-dev` | Mortgage lifecycle event fan-out |
+| SQS queue | `capstone-mortgage-servicing-dev` | Consumed by `servicing-service` |
+| SQS DLQ | `capstone-mortgage-servicing-dlq-dev` | Holds messages after repeated processing failures |
 
-## Dead-Letter Queue (DLQ) & Failure Handling Policy
-1. **Max Receives**: Any message that fails processing 3 times (`maxReceiveCount = 3`) is automatically routed to `capstone-mortgage-servicing-dlq-dev`[cite: 4].
-2. **Idempotency**: Consumers check the `event_inbox` table (`event_id` primary key) before executing side-effects to ensure duplicate message deliveries are safely ignored[cite: 4].
-3. **Manual Replay**: Operations personnel can inspect messages in the DLQ via LocalStack / AWS Console, resolve the underlying application bug, and redrive messages back to the primary servicing queue.
+The servicing queue uses a 30-second visibility timeout and a redrive policy with `maxReceiveCount=3`. Inside Compose, services reach LocalStack at `http://localstack:4566`; `localhost` refers to the calling container.
+
+## Verify Resources
+
+```bash
+docker compose exec -T localstack awslocal sns list-topics
+docker compose exec -T localstack awslocal sqs list-queues
+docker compose exec -T localstack awslocal sns list-subscriptions-by-topic \
+	--topic-arn arn:aws:sns:us-east-1:000000000000:capstone-mortgage-lifecycle-dev
+```
+
+## Processing and Retry Behavior
+
+1. `mortgage-service` publishes an envelope containing `eventId`, `eventType`, `schemaVersion`, `occurredAt`, `correlationId`, and `payload`.
+2. SNS delivers raw event JSON to the servicing queue.
+3. `servicing-service` validates the envelope, resolves `mortgageExternalId` to the canonical mortgage UUID, and transactionally writes `servicing_history` plus the `event_inbox` row.
+4. SQS acknowledgment occurs only after transaction commit. Duplicate event IDs are acknowledged without repeating the history write.
+5. Failures are logged and left unacknowledged. SQS retries after visibility timeout and moves messages to the DLQ after three receives.
+
+## Troubleshooting
+
+- `QueueDoesNotExist`: confirm `messaging-init` exited successfully and inspect `awslocal sqs list-queues`.
+- Messages remain visible: inspect `docker compose logs --tail=150 servicing-service`; verify the event envelope and that its business mortgage ID exists in `mortgage`.
+- Messages land in the DLQ: inspect the message, fix the cause, then redrive deliberately; do not replay poison messages blindly.
+- No event appears: inspect mortgage-service logs and verify the SNS topic ARN in Compose.
+- The previous generated-schema database volume is retained. Current Compose uses the separate canonical volume `mortgage_platform_canonical_postgres_data_v2`; a dump of the earlier local DB is ignored by Git at `database/mortgage_intel-pre-canonical-schema.dump`.

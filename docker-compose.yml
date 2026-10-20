@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:17.7
@@ -11,7 +9,10 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - mortgage_platform_canonical_postgres_data_v2:/var/lib/postgresql/data
+      - ./database/migrations/001_core_schema.sql:/docker-entrypoint-initdb.d/01-core-schema.sql:ro
+      - ./database/migrations/002_event_inbox_and_indexes.sql:/docker-entrypoint-initdb.d/02-event-inbox-and-indexes.sql:ro
+      - ./database/seed/seed_mortgage_data.sql:/docker-entrypoint-initdb.d/03-seed.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U mortgage_app -d mortgage_intel"]
       interval: 5s
@@ -26,6 +27,28 @@ services:
     environment:
       - SERVICES=sns,sqs
       - AWS_DEFAULT_REGION=us-east-1
+    healthcheck:
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/4566"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  messaging-init:
+    image: localstack/localstack:3.8.0
+    container_name: mortgage-messaging-init
+    entrypoint: ["/bin/bash"]
+    command: ["/init/01-create-mortgage-messaging.sh"]
+    environment:
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+    volumes:
+      - ./localstack/init/ready.d/01-create-mortgage-messaging.sh:/init/01-create-mortgage-messaging.sh:ro
+    depends_on:
+      localstack:
+        condition: service_healthy
+    restart: "no"
 
   mortgage-service:
     build:
@@ -38,15 +61,21 @@ services:
       - SPRING_PROFILES_ACTIVE=dev
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
+      - POSTGRES_DB=mortgage_intel
+      - POSTGRES_USER=mortgage_app
+      - POSTGRES_PASSWORD=postgres
       - AWS_ENDPOINT_URL=http://localstack:4566
       - AWS_REGION=us-east-1
+      - SNS_TOPIC_ARN=arn:aws:sns:us-east-1:000000000000:capstone-mortgage-lifecycle-dev
     depends_on:
       postgres:
         condition: service_healthy
       localstack:
-        condition: service_started
+        condition: service_healthy
+      messaging-init:
+        condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8080'"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -62,36 +91,48 @@ services:
       - SPRING_PROFILES_ACTIVE=dev
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
+      - POSTGRES_DB=mortgage_intel
+      - POSTGRES_USER=mortgage_app
+      - POSTGRES_PASSWORD=postgres
       - AWS_ENDPOINT_URL=http://localstack:4566
       - AWS_REGION=us-east-1
+      - SQS_QUEUE_SERVICING_EVENTS=http://localstack:4566/000000000000/capstone-mortgage-servicing-dev
     depends_on:
       postgres:
         condition: service_healthy
       localstack:
-        condition: service_started
+        condition: service_healthy
+      messaging-init:
+        condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8081'"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   analytics-service:
-      build:
-        context: .
-        dockerfile: docker/Dockerfile.analytics-service
-      container_name: analytics-service
-      ports:
-        - "8000:8000"
-      environment:
-        - POSTGRES_HOST=postgres
-        - POSTGRES_PORT=5432
-        - POSTGRES_DB=mortgage_intel
-        - POSTGRES_USER=mortgage_app
-        - POSTGRES_PASSWORD=postgres
-        - AWS_ENDPOINT_URL=http://localstack:4566
-      depends_on:
-        postgres:
-          condition: service_healthy
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.analytics-service
+    container_name: analytics-service
+    ports:
+      - "8000:8000"
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=mortgage_intel
+      - POSTGRES_USER=mortgage_app
+      - POSTGRES_PASSWORD=postgres
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_REGION=us-east-1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
-  postgres_data:
+  mortgage_platform_canonical_postgres_data_v2:

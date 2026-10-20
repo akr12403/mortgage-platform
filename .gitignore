@@ -26,3 +26,4 @@ target/
 .DS_Store
 Thumbs.db
 *.log
+database/*.dump

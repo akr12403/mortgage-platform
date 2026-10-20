@@ -26,7 +26,8 @@ public class BorrowerController {
     @GetMapping("/{borrowerExternalId}")
     public ResponseEntity<Borrower> getBorrowerByExternalId(@PathVariable String borrowerExternalId) {
         Borrower borrower = borrowerRepository.findByBorrowerExternalId(borrowerExternalId)
-                .orElseThrow(() -> new RuntimeException("Borrower not found with external id: " + borrowerExternalId));
+            .orElseThrow(() -> new jakarta.persistence.EntityNotFoundException(
+                "Borrower " + borrowerExternalId + " was not found"));
         return ResponseEntity.ok(borrower);
     }
 }

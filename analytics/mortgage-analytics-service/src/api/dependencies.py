@@ -15,14 +15,8 @@ DB_NAME = os.getenv("POSTGRES_DB", "mortgage_intel")
 
 DATABASE_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
-try:
-    # Fail fast if DB is unreachable during startup, with connection pool pre-ping
-    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
-    with engine.connect() as connection:
-        logger.info("Successfully connected to PostgreSQL database.")
-except Exception as e:
-    logger.error(f"Failed to connect to PostgreSQL database: {e}")
-    raise
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+logger.info("PostgreSQL engine configured for %s:%s/%s", DB_HOST, DB_PORT, DB_NAME)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -30,6 +24,10 @@ Base = declarative_base()
 def get_db():
     db = SessionLocal()
     try:
+        db.connection()
         yield db
+    except Exception:
+        logger.exception("Failed to connect to PostgreSQL database")
+        raise
     finally:
         db.close()

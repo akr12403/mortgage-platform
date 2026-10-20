@@ -1,101 +1,96 @@
 package com.capstone.mortgage.service;
 
 import com.capstone.mortgage.entity.Mortgage;
+import com.capstone.mortgage.entity.Loan;
 import com.capstone.mortgage.entity.Payment;
-import com.capstone.mortgage.entity.ServicingHistory;
+import com.capstone.mortgage.dto.MortgageCreateRequest;
 import com.capstone.mortgage.events.EventPayloads;
+import com.capstone.mortgage.repository.BorrowerRepository;
+import com.capstone.mortgage.repository.LoanRepository;
 import com.capstone.mortgage.repository.MortgageRepository;
 import com.capstone.mortgage.repository.PaymentRepository;
-import com.capstone.mortgage.repository.ServicingHistoryRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal; // <-- Added missing import
 import java.util.List;
+
 
 @Service
 public class MortgageService {
 
     private final MortgageRepository mortgageRepository;
+    private final BorrowerRepository borrowerRepository;
+    private final LoanRepository loanRepository;
     private final PaymentRepository paymentRepository;
-    private final ServicingHistoryRepository historyRepository;
     private final EventPublisherService eventPublisher; // Added event publisher
 
     public MortgageService(MortgageRepository mortgageRepository,
+                           BorrowerRepository borrowerRepository,
+                           LoanRepository loanRepository,
                            PaymentRepository paymentRepository,
-                           ServicingHistoryRepository historyRepository,
                            EventPublisherService eventPublisher) {
         this.mortgageRepository = mortgageRepository;
+        this.borrowerRepository = borrowerRepository;
+        this.loanRepository = loanRepository;
         this.paymentRepository = paymentRepository;
-        this.historyRepository = historyRepository;
         this.eventPublisher = eventPublisher;
     }
 
-    public Mortgage getMortgageById(Long id) {
-        return mortgageRepository.findById(id)
-                .orElseThrow(() -> new jakarta.persistence.EntityNotFoundException("Mortgage not found with id: " + id));
+    public Mortgage getMortgageById(String mortgageExternalId) {
+        return mortgageRepository.findByMortgageExternalId(mortgageExternalId)
+                .orElseThrow(() -> new jakarta.persistence.EntityNotFoundException("Mortgage " + mortgageExternalId + " was not found"));
     }
 
     @Transactional
-    public Mortgage saveMortgage(Mortgage mortgage) {
+    public Mortgage saveMortgage(MortgageCreateRequest request) {
+        var borrower = borrowerRepository.findByBorrowerExternalId(request.borrowerExternalId())
+                .orElseThrow(() -> new jakarta.persistence.EntityNotFoundException(
+                        "Borrower " + request.borrowerExternalId() + " was not found"));
+        Mortgage mortgage = new Mortgage();
+        mortgage.setMortgageExternalId(request.mortgageExternalId());
+        mortgage.setStatus("PENDING");
+        mortgage.setOriginalAmount(request.originalAmount());
+        mortgage.setOutstandingBalance(request.outstandingBalance());
+        mortgage.setOriginationDate(request.originationDate());
+        mortgage.setBorrower(borrower);
         Mortgage saved = mortgageRepository.save(mortgage);
 
-        // Publish MortgageCreated event via SNS
+        if (request.loan() != null) {
+            Loan loan = new Loan();
+            loan.setLoanExternalId(request.loan().loanExternalId());
+            loan.setMortgage(saved);
+            loan.setInterestRate(request.loan().interestRate());
+            loan.setTermMonths(request.loan().termMonths());
+            loan.setUnderwritingDecision(request.loan().underwritingDecision());
+            Loan savedLoan = loanRepository.save(loan);
+            mortgage.setLoan(savedLoan);
+            if ("APPROVED".equals(savedLoan.getUnderwritingDecision())) {
+                eventPublisher.publishEvent("LoanApproved", new EventPayloads.LoanApprovedPayload(
+                        saved.getMortgageExternalId(), savedLoan.getLoanExternalId(),
+                        savedLoan.getUnderwritingDecision(), "UNDERWRITER"
+                ));
+            }
+        }
+
         var payload = new EventPayloads.MortgageCreatedPayload(
-                "MTG-" + saved.getId(),
-                saved.getBorrower() != null ? "BOR-" + saved.getBorrower().getId() : "BOR-UNKNOWN",
-                saved.getLoanAmount(),
-                "PENDING"
+                saved.getMortgageExternalId(),
+                saved.getBorrower().getBorrowerExternalId(),
+                saved.getOriginalAmount(),
+                saved.getStatus()
         );
         eventPublisher.publishEvent("MortgageCreated", payload);
 
         return saved;
     }
 
-    public Page<Mortgage> getMortgagesByBorrower(Long borrowerId, Pageable pageable) {
-        return mortgageRepository.findByBorrowerId(borrowerId, pageable);
+    public Page<Mortgage> getMortgagesByBorrower(String borrowerExternalId, Pageable pageable) {
+        return mortgageRepository.findByBorrower_BorrowerExternalId(borrowerExternalId, pageable);
     }
 
-    @Transactional
-    public Payment processPayment(Long mortgageId, Payment payment) {
-        Mortgage mortgage = getMortgageById(mortgageId);
-
-        payment.setMortgage(mortgage);
-        Payment savedPayment = paymentRepository.save(payment);
-
-        // Update outstanding balance transactionally if needed
-        BigDecimal currentBalance = mortgage.getOutstandingBalance() != null
-                ? mortgage.getOutstandingBalance()
-                : mortgage.getLoanAmount();
-
-        if (currentBalance != null) {
-            mortgage.setOutstandingBalance(currentBalance.subtract(payment.getAmount()));
-            mortgageRepository.save(mortgage);
-        }
-
-        // Insert servicing history event
-        ServicingHistory history = new ServicingHistory(
-                mortgageId,
-                "PAYMENT_POSTED",
-                "Payment posted successfully for amount: " + payment.getAmount()
-        );
-        historyRepository.save(history);
-
-        // Publish PaymentReceived event via SNS
-        var payload = new EventPayloads.PaymentReceivedPayload(
-                "MTG-" + mortgage.getId(),
-                payment.getAmount(),
-                payment.getPaidDate(),
-                mortgage.getOutstandingBalance()
-        );
-        eventPublisher.publishEvent("PaymentReceived", payload);
-
-        return savedPayment;
+    public List<Payment> getPaymentsByMortgage(String mortgageExternalId) {
+        return paymentRepository.findByMortgage_MortgageExternalIdOrderByDueDateAsc(mortgageExternalId);
     }
 
-    public List<Payment> getPaymentsByMortgage(Long mortgageId) {
-        return paymentRepository.findByMortgageId(mortgageId);
-    }
 }

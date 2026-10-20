@@ -1,21 +1,19 @@
 package com.capstone.servicing.entity;
 
 import jakarta.persistence.*;
-import java.time.LocalDateTime;
+import java.time.Instant;
+import java.util.UUID;
 
 @Entity
 @Table(name = "servicing_history")
 public class ServicingHistory {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-
-    @Column(name = "event_id")
-    private String eventId; // Added for event tracking / traceability
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
 
     @Column(name = "mortgage_id", nullable = false)
-    private Long mortgageId;
+    private UUID mortgageId;
 
     @Column(name = "event_type", nullable = false)
     private String eventType;
@@ -23,20 +21,17 @@ public class ServicingHistory {
     @Column(name = "description")
     private String description;
 
-    @Column(name = "created_at", nullable = false)
-    private LocalDateTime createdAt;
+    @Column(name = "event_time", nullable = false)
+    private Instant eventTime;
 
     public ServicingHistory() {}
 
     // Getters and Setters
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
+    public UUID getId() { return id; }
+    public void setId(UUID id) { this.id = id; }
 
-    public String getEventId() { return eventId; }
-    public void setEventId(String eventId) { this.eventId = eventId; }
-
-    public Long getMortgageId() { return mortgageId; }
-    public void setMortgageId(Long mortgageId) { this.mortgageId = mortgageId; }
+    public UUID getMortgageId() { return mortgageId; }
+    public void setMortgageId(UUID mortgageId) { this.mortgageId = mortgageId; }
 
     public String getEventType() { return eventType; }
     public void setEventType(String eventType) { this.eventType = eventType; }
@@ -44,6 +39,6 @@ public class ServicingHistory {
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
 
-    public LocalDateTime getCreatedAt() { return createdAt; }
-    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    public Instant getEventTime() { return eventTime; }
+    public void setEventTime(Instant eventTime) { this.eventTime = eventTime; }
 }

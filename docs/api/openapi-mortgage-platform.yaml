@@ -1,0 +1,401 @@
+openapi: 3.0.3
+info:
+  title: Mortgage Intelligence Platform API Contract
+  version: '1.0.0'
+  description: >-
+    Contract-first API surface for the mortgage origination, servicing, delinquency,
+    payment, and analytics services in the M5 local-capstone stack.
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Mortgage service
+  - url: http://localhost:8081/api/v1
+    description: Servicing service
+  - url: http://localhost:8000/api/v1/analytics
+    description: Analytics service
+paths:
+  /mortgages:
+    post:
+      summary: Create a mortgage
+      operationId: createMortgage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MortgageCreateRequest'
+      responses:
+        '201':
+          description: Mortgage created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MortgageResponse'
+        '400':
+          $ref: '#/components/responses/ErrorEnvelope'
+  /mortgages/{id}:
+    get:
+      summary: Get a mortgage by business identifier
+      operationId: getMortgageById
+      parameters:
+        - $ref: '#/components/parameters/MortgageId'
+      responses:
+        '200':
+          description: Mortgage detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MortgageResponse'
+        '404':
+          $ref: '#/components/responses/ErrorEnvelope'
+  /mortgages/{id}/payments:
+    post:
+      summary: Post a payment
+      operationId: postPayment
+      parameters:
+        - $ref: '#/components/parameters/MortgageId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRequest'
+      responses:
+        '200':
+          description: Payment posted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '404':
+          $ref: '#/components/responses/ErrorEnvelope'
+    get:
+      summary: List mortgage payments
+      operationId: listPayments
+      parameters:
+        - $ref: '#/components/parameters/MortgageId'
+      responses:
+        '200':
+          description: Payment list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PaymentResponse'
+  /mortgages/{id}/servicing-history:
+    get:
+      summary: Get servicing history for a mortgage
+      operationId: getServicingHistory
+      parameters:
+        - $ref: '#/components/parameters/MortgageId'
+      responses:
+        '200':
+          description: Servicing history envelope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServicingHistoryEnvelope'
+        '404':
+          $ref: '#/components/responses/ErrorEnvelope'
+  /mortgages/{id}/delinquency:
+    get:
+      summary: Get delinquency status
+      operationId: getDelinquency
+      parameters:
+        - $ref: '#/components/parameters/MortgageId'
+      responses:
+        '200':
+          description: Delinquency info for the mortgage
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DelinquencyResponse'
+        '404':
+          $ref: '#/components/responses/ErrorEnvelope'
+  /analytics/portfolio-summary:
+    get:
+      summary: Get portfolio summary
+      operationId: getPortfolioSummary
+      responses:
+        '200':
+          description: Aggregated portfolio summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortfolioSummary'
+  /analytics/delinquency:
+    get:
+      summary: Get delinquent mortgage data
+      operationId: getDelinquencyAnalytics
+      responses:
+        '200':
+          description: Delinquency list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DelinquencyAnalytics'
+  /analytics/borrowers/{borrowerExternalId}/risk-summary:
+    get:
+      summary: Get borrower risk summary
+      operationId: getBorrowerRiskSummary
+      parameters:
+        - name: borrowerExternalId
+          in: path
+          required: true
+          schema:
+            type: string
+            example: BOR-001
+      responses:
+        '200':
+          description: Borrower risk summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorrowerRiskSummary'
+        '404':
+          $ref: '#/components/responses/ErrorEnvelope'
+components:
+  parameters:
+    MortgageId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        example: MTG-1001
+  schemas:
+    ErrorEnvelope:
+      type: object
+      required: [code, message, correlationId, timestamp]
+      properties:
+        code:
+          type: string
+          example: NOT_FOUND
+        message:
+          type: string
+          example: Mortgage MTG-9999 was not found
+        correlationId:
+          type: string
+          example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+        timestamp:
+          type: string
+          format: date-time
+          example: 2026-10-20T12:00:00Z
+    MortgageCreateRequest:
+      type: object
+      required: [mortgageExternalId, borrowerExternalId, originalAmount, outstandingBalance, originationDate, loan]
+      properties:
+        mortgageExternalId:
+          type: string
+          example: MTG-9015
+        borrowerExternalId:
+          type: string
+          example: BOR-001
+        originalAmount:
+          type: number
+          format: double
+          example: 320000.00
+        outstandingBalance:
+          type: number
+          format: double
+          example: 318500.00
+        originationDate:
+          type: string
+          format: date
+          example: 2025-06-01
+        loan:
+          $ref: '#/components/schemas/LoanRequest'
+    LoanRequest:
+      type: object
+      required: [loanExternalId, interestRate, termMonths, underwritingDecision]
+      properties:
+        loanExternalId:
+          type: string
+          example: LOAN-9015
+        interestRate:
+          type: number
+          format: double
+          example: 0.065
+        termMonths:
+          type: integer
+          example: 360
+        underwritingDecision:
+          type: string
+          example: APPROVED
+    MortgageResponse:
+      type: object
+      required: [id, mortgageExternalId, borrowerExternalId, status, originalAmount, outstandingBalance, originationDate, loan]
+      properties:
+        id:
+          type: string
+          format: uuid
+        mortgageExternalId:
+          type: string
+          example: MTG-9015
+        borrowerExternalId:
+          type: string
+          example: BOR-001
+        status:
+          type: string
+          example: PENDING
+        originalAmount:
+          type: number
+          format: double
+          example: 320000.00
+        outstandingBalance:
+          type: number
+          format: double
+          example: 318500.00
+        originationDate:
+          type: string
+          format: date
+          example: 2025-06-01
+        loan:
+          $ref: '#/components/schemas/LoanResponse'
+    LoanResponse:
+      type: object
+      properties:
+        loanExternalId:
+          type: string
+          example: LOAN-9015
+        interestRate:
+          type: number
+          format: double
+          example: 0.065
+        termMonths:
+          type: integer
+          example: 360
+        underwritingDecision:
+          type: string
+          example: APPROVED
+    PaymentRequest:
+      type: object
+      required: [dueDate, amount, status]
+      properties:
+        dueDate:
+          type: string
+          format: date
+          example: 2026-10-01
+        paidDate:
+          type: string
+          format: date
+          nullable: true
+          example: 2026-10-02
+        amount:
+          type: number
+          format: double
+          example: 1500.00
+        status:
+          type: string
+          enum: [POSTED, FAILED, REVERSED]
+          example: POSTED
+    PaymentResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        dueDate:
+          type: string
+          format: date
+        paidDate:
+          type: string
+          format: date
+          nullable: true
+        amount:
+          type: number
+          format: double
+        status:
+          type: string
+    ServicingHistoryEnvelope:
+      type: object
+      required: [mortgageExternalId, events]
+      properties:
+        mortgageExternalId:
+          type: string
+          example: MTG-9015
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServicingEvent'
+    ServicingEvent:
+      type: object
+      properties:
+        eventTime:
+          type: string
+          format: date-time
+        eventType:
+          type: string
+          example: LoanApproved
+        description:
+          type: string
+          example: Loan approval decision: APPROVED
+    DelinquencyResponse:
+      type: object
+      required: [mortgageExternalId, status, daysPastDue, severity]
+      properties:
+        mortgageExternalId:
+          type: string
+          example: MTG-1002
+        status:
+          type: string
+          example: DELINQUENT
+        delinquentSince:
+          type: string
+          format: date
+          example: 2026-08-01
+        daysPastDue:
+          type: integer
+          example: 79
+        severity:
+          type: string
+          example: SEVERE
+    PortfolioSummary:
+      type: object
+      properties:
+        totalMortgages:
+          type: integer
+        activeMortgages:
+          type: integer
+        delinquentMortgages:
+          type: integer
+        outstandingBalanceTotal:
+          type: number
+          format: double
+        delinquencyRate:
+          type: number
+          format: double
+        asOf:
+          type: string
+          format: date-time
+    DelinquencyAnalytics:
+      type: object
+      properties:
+        delinquentMortgages:
+          type: array
+          items:
+            type: object
+        count:
+          type: integer
+    BorrowerRiskSummary:
+      type: object
+      properties:
+        borrowerExternalId:
+          type: string
+          example: BOR-001
+        totalMortgages:
+          type: integer
+        activeMortgages:
+          type: integer
+        delinquentMortgages:
+          type: integer
+        outstandingBalance:
+          type: number
+          format: double
+  responses:
+    ErrorEnvelope:
+      description: Standard error response envelope
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'

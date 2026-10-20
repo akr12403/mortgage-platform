@@ -2,6 +2,8 @@ package com.capstone.mortgage.controller;
 
 import com.capstone.mortgage.entity.Mortgage;
 import com.capstone.mortgage.entity.Payment;
+import com.capstone.mortgage.entity.Borrower;
+import com.capstone.mortgage.dto.MortgageCreateRequest;
 import com.capstone.mortgage.service.MortgageService;
 import com.capstone.mortgage.service.PaymentService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,6 +19,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Collections;
+import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -43,22 +46,26 @@ class MortgageApiTest {
     @Test
     void getMortgageById_HappyPath_Returns200() throws Exception {
         Mortgage mortgage = new Mortgage();
-        mortgage.setId(1L);
-        when(mortgageService.getMortgageById(1L)).thenReturn(mortgage);
+        mortgage.setId(UUID.randomUUID());
+        mortgage.setMortgageExternalId("MTG-1001");
+        Borrower borrower = new Borrower();
+        borrower.setBorrowerExternalId("BOR-001");
+        mortgage.setBorrower(borrower);
+        when(mortgageService.getMortgageById("MTG-1001")).thenReturn(mortgage);
 
-        mockMvc.perform(get("/api/v1/mortgages/1"))
+        mockMvc.perform(get("/api/v1/mortgages/MTG-1001"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(1));
+                .andExpect(jsonPath("$.mortgageExternalId").value("MTG-1001"));
     }
 
     // --- Updated Endpoint 1: GET unknown mortgage (Expects 404) ---
     @Test
     void getMortgageById_NotFound_Returns404() throws Exception {
         // Maps to the minimum test case: GET unknown mortgage -> 404
-        when(mortgageService.getMortgageById(999L))
+        when(mortgageService.getMortgageById("MTG-9999"))
                 .thenThrow(new jakarta.persistence.EntityNotFoundException("Mortgage not found"));
 
-        mockMvc.perform(get("/api/v1/mortgages/999"))
+        mockMvc.perform(get("/api/v1/mortgages/MTG-9999"))
                 .andExpect(status().isNotFound());
     }
 
@@ -66,12 +73,30 @@ class MortgageApiTest {
     @Test
     void createMortgage_HappyPath_Returns201() throws Exception {
         Mortgage mortgage = new Mortgage();
-        mortgage.setId(1L);
-        when(mortgageService.saveMortgage(any(Mortgage.class))).thenReturn(mortgage);
+        mortgage.setId(UUID.randomUUID());
+        mortgage.setMortgageExternalId("MTG-1010");
+        Borrower borrower = new Borrower();
+        borrower.setBorrowerExternalId("BOR-001");
+        mortgage.setBorrower(borrower);
+                                when(mortgageService.saveMortgage(any(MortgageCreateRequest.class))).thenReturn(mortgage);
 
         mockMvc.perform(post("/api/v1/mortgages")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(mortgage)))
+                                                                                                .content("""
+                                                                                                                                {
+                                                                                                                                        "mortgageExternalId": "MTG-1010",
+                                                                                                                                        "borrowerExternalId": "BOR-001",
+                                                                                                                                        "originalAmount": 320000.00,
+                                                                                                                                        "outstandingBalance": 318500.00,
+                                                                                                                                        "originationDate": "2025-06-01",
+                                                                                                                                        "loan": {
+                                                                                                                                                "loanExternalId": "LOAN-2010",
+                                                                                                                                                "interestRate": 0.0650,
+                                                                                                                                                "termMonths": 360,
+                                                                                                                                                "underwritingDecision": "APPROVED"
+                                                                                                                                        }
+                                                                                                                                }
+                                                                                                                                """))
                 .andExpect(status().isCreated());
     }
 
@@ -82,11 +107,11 @@ class MortgageApiTest {
         payment.setAmount(new BigDecimal("1500.00"));
         payment.setPaidDate(LocalDate.now());
         payment.setDueDate(LocalDate.now());
-        payment.setStatus("COMPLETED");
+        payment.setStatus("POSTED");
 
-        when(paymentService.processPayment(eq(1L), any(Payment.class))).thenReturn(payment);
+        when(paymentService.processPayment(eq("MTG-1001"), any(Payment.class))).thenReturn(payment);
 
-        mockMvc.perform(post("/api/v1/mortgages/1/payments")
+        mockMvc.perform(post("/api/v1/mortgages/MTG-1001/payments")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(payment))
                         .header("X-Correlation-Id", "test-corr-id"))
@@ -96,7 +121,7 @@ class MortgageApiTest {
     @Test
     void createPayment_ValidationError_Returns400() throws Exception {
         // Sending an empty payment body triggers validation for mandatory fields (paidDate, status)
-        mockMvc.perform(post("/api/v1/mortgages/1/payments")
+        mockMvc.perform(post("/api/v1/mortgages/MTG-1001/payments")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isBadRequest())
@@ -106,20 +131,20 @@ class MortgageApiTest {
     // --- Endpoint 4: GET /api/v1/mortgages/{id}/payments ---
     @Test
     void getPayments_HappyPath_Returns200() throws Exception {
-        when(mortgageService.getPaymentsByMortgage(1L)).thenReturn(Collections.emptyList());
+        when(mortgageService.getPaymentsByMortgage("MTG-1001")).thenReturn(Collections.emptyList());
 
-        mockMvc.perform(get("/api/v1/mortgages/1/payments"))
+        mockMvc.perform(get("/api/v1/mortgages/MTG-1001/payments"))
                 .andExpect(status().isOk());
     }
 
     // --- Endpoint 5: GET /api/v1/mortgages?borrowerId={id} ---
     @Test
     void getMortgagesByBorrower_HappyPath_Returns200() throws Exception {
-        when(mortgageService.getMortgagesByBorrower(eq(100L), any(Pageable.class)))
+        when(mortgageService.getMortgagesByBorrower(eq("BOR-001"), any(Pageable.class)))
                 .thenReturn(Page.empty());
 
         mockMvc.perform(get("/api/v1/mortgages")
-                        .param("borrowerId", "100")
+                        .param("borrowerId", "BOR-001")
                         .param("page", "0")
                         .param("size", "10"))
                 .andExpect(status().isOk());

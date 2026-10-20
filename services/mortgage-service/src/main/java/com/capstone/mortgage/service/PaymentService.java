@@ -9,9 +9,9 @@ import com.capstone.mortgage.repository.PaymentRepository;
 import com.capstone.mortgage.repository.ServicingHistoryRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 
 @Service
 public class PaymentService {
@@ -20,22 +20,24 @@ public class PaymentService {
     private final MortgageRepository mortgageRepository;
     private final ServicingHistoryRepository servicingHistoryRepository;
     private final EventPublisherService eventPublisher; // Added event publisher
+    private final JdbcTemplate jdbcTemplate;
 
     public PaymentService(PaymentRepository paymentRepository,
                           MortgageRepository mortgageRepository,
                           ServicingHistoryRepository servicingHistoryRepository,
-                          EventPublisherService eventPublisher) {
+                          EventPublisherService eventPublisher,
+                          JdbcTemplate jdbcTemplate) {
         this.paymentRepository = paymentRepository;
         this.mortgageRepository = mortgageRepository;
         this.servicingHistoryRepository = servicingHistoryRepository;
         this.eventPublisher = eventPublisher;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @Transactional
-    public Payment processPayment(Long mortgageId, Payment payment) {
-        // 1. Find mortgage
-        Mortgage mortgage = mortgageRepository.findById(mortgageId)
-                .orElseThrow(() -> new RuntimeException("Mortgage not found with id: " + mortgageId));
+    public Payment processPayment(String mortgageExternalId, Payment payment) {
+        Mortgage mortgage = mortgageRepository.findByMortgageExternalId(mortgageExternalId)
+                .orElseThrow(() -> new jakarta.persistence.EntityNotFoundException("Mortgage " + mortgageExternalId + " was not found"));
 
         // 2. Associate payment and save
         payment.setMortgage(mortgage);
@@ -43,30 +45,63 @@ public class PaymentService {
 
         // 3. Update mortgage outstanding balance (fall back to loanAmount if balance is null)
         BigDecimal currentBalance = mortgage.getOutstandingBalance() != null
-                ? mortgage.getOutstandingBalance()
-                : mortgage.getLoanAmount();
+            ? mortgage.getOutstandingBalance()
+            : mortgage.getOriginalAmount();
 
-        if (currentBalance != null) {
+        if ("POSTED".equals(payment.getStatus()) && currentBalance != null) {
             mortgage.setOutstandingBalance(currentBalance.subtract(payment.getAmount()));
             mortgageRepository.save(mortgage);
         }
 
-        // 4. Insert servicing history event PAYMENT_POSTED
         ServicingHistory history = new ServicingHistory();
-        history.setMortgageId(mortgageId);
-        history.setEventType("PAYMENT_POSTED");
-        history.setDescription("Payment of " + payment.getAmount() + " posted successfully.");
-        history.setCreatedAt(LocalDateTime.now());
-        servicingHistoryRepository.save(history);
-
-        // 5. Publish PaymentReceived event via SNS
-        var payload = new EventPayloads.PaymentReceivedPayload(
-                "MTG-" + mortgage.getId(),
-                payment.getAmount(),
-                payment.getPaidDate(),
+        history.setMortgageId(mortgage.getId());
+        if ("POSTED".equals(payment.getStatus())) {
+            history.setEventType("PAYMENT_POSTED");
+            history.setDescription("Payment posted for amount: " + payment.getAmount());
+            servicingHistoryRepository.save(history);
+            eventPublisher.publishEvent("PaymentReceived", new EventPayloads.PaymentReceivedPayload(
+                mortgage.getMortgageExternalId(), payment.getAmount(), payment.getPaidDate(),
                 mortgage.getOutstandingBalance()
-        );
-        eventPublisher.publishEvent("PaymentReceived", payload);
+            ));
+        } else {
+            history.setEventType("PAYMENT_" + payment.getStatus());
+            history.setDescription("Payment " + payment.getStatus().toLowerCase() + " for amount: " + payment.getAmount());
+            servicingHistoryRepository.save(history);
+        }
+
+        if (("FAILED".equals(payment.getStatus()) || "REVERSED".equals(payment.getStatus()))
+            && payment.getDueDate() != null
+            && !payment.getDueDate().isAfter(java.time.LocalDate.now())) {
+            var missedPayload = new EventPayloads.PaymentMissedPayload(
+                mortgage.getMortgageExternalId(), payment.getDueDate(),
+                Math.max(0, java.time.temporal.ChronoUnit.DAYS.between(payment.getDueDate(), java.time.LocalDate.now()))
+            );
+            eventPublisher.publishEvent("PaymentMissed", missedPayload);
+
+            long daysPastDue = java.time.temporal.ChronoUnit.DAYS.between(payment.getDueDate(), java.time.LocalDate.now());
+            boolean successfulPaymentExists = Boolean.TRUE.equals(jdbcTemplate.queryForObject("""
+                    SELECT EXISTS (
+                        SELECT 1 FROM payment
+                        WHERE mortgage_id = ? AND due_date = ? AND status = 'POSTED'
+                    )
+                    """, Boolean.class, mortgage.getId(), payment.getDueDate()));
+            if (daysPastDue >= 30 && !successfulPaymentExists && !"DELINQUENT".equals(mortgage.getStatus())) {
+                mortgage.setStatus("DELINQUENT");
+                mortgageRepository.save(mortgage);
+                jdbcTemplate.update("""
+                        INSERT INTO delinquency (mortgage_id, delinquent_since, days_past_due, severity)
+                        VALUES (?, ?, ?, ?)
+                        ON CONFLICT (mortgage_id) DO UPDATE SET
+                            days_past_due = EXCLUDED.days_past_due,
+                            severity = EXCLUDED.severity
+                        """, mortgage.getId(), payment.getDueDate(), daysPastDue,
+                        daysPastDue >= 90 ? "CRITICAL" : daysPastDue >= 60 ? "SEVERE" : "MODERATE");
+                eventPublisher.publishEvent("LoanDelinquent", new EventPayloads.LoanDelinquentPayload(
+                        mortgage.getMortgageExternalId(), payment.getDueDate().toString(), daysPastDue,
+                        daysPastDue >= 90 ? "CRITICAL" : daysPastDue >= 60 ? "SEVERE" : "MODERATE"
+                ));
+            }
+        }
 
         return savedPayment;
     }

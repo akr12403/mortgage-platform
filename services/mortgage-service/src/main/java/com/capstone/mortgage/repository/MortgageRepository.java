@@ -7,11 +7,15 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import java.util.Optional;
+import java.util.UUID;
+import org.springframework.data.jpa.repository.EntityGraph;
 
 @Repository
-public interface MortgageRepository extends JpaRepository<Mortgage, Long> {
+public interface MortgageRepository extends JpaRepository<Mortgage, UUID> {
 
-    @Query(value = "SELECT m FROM Mortgage m LEFT JOIN FETCH m.payments WHERE m.borrower.id = :borrowerId",
-            countQuery = "SELECT count(m) FROM Mortgage m WHERE m.borrower.id = :borrowerId")
-    Page<Mortgage> findByBorrowerId(@Param("borrowerId") Long borrowerId, Pageable pageable);
+    @EntityGraph(attributePaths = {"borrower", "loan"})
+    Optional<Mortgage> findByMortgageExternalId(String mortgageExternalId);
+
+    Page<Mortgage> findByBorrower_BorrowerExternalId(String borrowerExternalId, Pageable pageable);
 }

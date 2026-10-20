@@ -1,5 +1,6 @@
 import uuid
 import logging
+from datetime import datetime, timezone
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from src.api.routes import analytics, documents
@@ -27,14 +28,33 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     correlation_id = getattr(request.state, "correlation_id", "unknown")
     detail = exc.detail
     if isinstance(detail, dict):
-        error_payload = detail
+        error_payload = {
+            **detail,
+            "correlationId": detail.get("correlationId", correlation_id),
+            "timestamp": detail.get("timestamp", datetime.now(timezone.utc).isoformat())
+        }
     else:
         error_payload = {
             "code": "HTTP_ERROR",
             "message": str(detail),
-            "correlationId": correlation_id
+            "correlationId": correlation_id,
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     return JSONResponse(status_code=exc.status_code, content=error_payload)
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    correlation_id = getattr(request.state, "correlation_id", "unknown")
+    logger.exception("Unhandled request error; correlationId=%s", correlation_id)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "code": "INTERNAL_ERROR",
+            "message": "An unexpected error occurred",
+            "correlationId": correlation_id,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    )
 
 @app.get("/health")
 def health_check():

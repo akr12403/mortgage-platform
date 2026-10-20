@@ -43,6 +43,23 @@ All foundational requirements and baseline architecture documentation created du
 
 ---
 
+## 🚀 Milestone 5 Status: MICROSERVICES + EVENTS
+Milestone 5 formalizes the system as a runnable containerized microservice platform with contract-first communication, event-driven lifecycle processing, DLQ + retry behavior, and service-specific ownership boundaries.
+
+### What is included
+- **Documented microservice architecture**: `mortgage-service`, `servicing-service`, and `analytics-service` with explicit ownership and runtime topology.
+- **Contract-first APIs**: documented request/response shapes under `docs/api/` and live HTTP contracts validated at runtime.
+- **Event-driven mortgage lifecycle**: SNS topic + SQS servicing queue + retries + DLQ + consumer deduplication via `event_inbox`.
+- **Operational readiness**: Compose-based container startup, health checks, localstack infrastructure, and M5 demo validation.
+
+### Primary docs to review
+- [docs/architecture/microservice-architecture.md](docs/architecture/microservice-architecture.md)
+- [docs/api/openapi-mortgage-platform.yaml](docs/api/openapi-mortgage-platform.yaml)
+- [docs/operations/m5-demo-checklist.md](docs/operations/m5-demo-checklist.md)
+- [docs/architecture/event-catalog.md](docs/architecture/event-catalog.md)
+
+---
+
 ## 🚀 Milestone 2 Status: COMPLETED
 Milestone 2 establishes the core database foundation, synthetic data seeding, operational query workflows, and DevSecOps baseline guardrails.
 

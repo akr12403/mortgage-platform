@@ -5,6 +5,7 @@ sqlalchemy
 psycopg2-binary
 boto3
 pytest
+moto[s3]
 httpx
 python-dotenv
 python-multipart

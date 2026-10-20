@@ -5,5 +5,11 @@ spring:
     password: ${POSTGRES_PASSWORD:postgres}
   jpa:
     hibernate:
-      ddl-auto: update
-    show-sql: true
+      ddl-auto: validate
+    show-sql: false
+
+aws:
+  region: ${AWS_REGION:us-east-1}
+  endpoint-url: ${AWS_ENDPOINT_URL:http://localhost:4566}
+  sqs:
+    queue-url: ${SQS_QUEUE_SERVICING_EVENTS:http://localhost:4566/000000000000/capstone-mortgage-servicing-dev}

@@ -1,39 +1,35 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import text  # <-- Make sure this is included!
 from src.api.dependencies import get_db
 from src.repositories.mortgage_repository import MortgageRepository
-from src.services.normalization_service import normalize_mortgages, normalize_borrowers, normalize_payments
-from src.analytics.portfolio import compute_portfolio_summary, compute_borrower_risk_summary, compute_payment_trends
+from datetime import datetime, timezone
+import logging
 
 router = APIRouter(prefix="/api/v1/analytics", tags=["analytics"])
 
-import traceback
-import logging
-
 logger = logging.getLogger(__name__)
+
+
+def _camel_case(name: str) -> str:
+    parts = name.split("_")
+    return parts[0] + "".join(part.capitalize() for part in parts[1:])
 
 @router.get("/portfolio-summary")
 def get_portfolio_summary(request: Request, db: Session = Depends(get_db)):
     correlation_id = getattr(request.state, "correlation_id", None)
     try:
         repo = MortgageRepository(db)
-        
-        mortgages_query = db.execute(text("SELECT id, mortgage_external_id, status, outstanding_balance FROM mortgages")).fetchall()
-        raw_list = [dict(row._mapping) for row in mortgages_query]
-        
-        norm_df = normalize_mortgages(raw_list, correlation_id=correlation_id)
-        summary = compute_portfolio_summary(norm_df)
-        return summary
-    except Exception as e:
-        tb = traceback.format_exc()
-        logger.error(f"[{correlation_id}] Portfolio summary error: {tb}")
+        summary = repo.get_portfolio_summary()
+        return {_camel_case(key): value for key, value in summary.items()}
+    except Exception:
+        logger.exception("[%s] Portfolio summary query failed", correlation_id)
         raise HTTPException(
             status_code=500,
             detail={
-                "error": str(e),
-                "traceback": tb,
-                "correlationId": correlation_id
+                "code": "INTERNAL_ERROR",
+                "message": "Unable to retrieve portfolio summary",
+                "correlationId": correlation_id,
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
         )
 
@@ -42,7 +38,13 @@ def get_delinquencies(request: Request, db: Session = Depends(get_db)):
     correlation_id = getattr(request.state, "correlation_id", None)
     repo = MortgageRepository(db)
     delinquencies = repo.get_delinquencies()
-    return {"delinquent_mortgages": delinquencies, "count": len(delinquencies)}
+    return {
+        "delinquentMortgages": [
+            {_camel_case(key): value for key, value in item.items()}
+            for item in delinquencies
+        ],
+        "count": len(delinquencies)
+    }
 
 @router.get("/borrowers/{borrower_external_id}/risk-summary")
 def get_borrower_risk(borrower_external_id: str, request: Request, db: Session = Depends(get_db)):
@@ -59,7 +61,7 @@ def get_borrower_risk(borrower_external_id: str, request: Request, db: Session =
                 "correlationId": correlation_id
             }
         )
-    return borrower_res
+    return {_camel_case(key): value for key, value in borrower_res.items()}
 
 @router.get("/payment-trends")
 def get_payment_trends(
@@ -71,4 +73,11 @@ def get_payment_trends(
     correlation_id = getattr(request.state, "correlation_id", None)
     repo = MortgageRepository(db)
     trends = repo.get_payment_trends(from_date, to_date)
-    return {"trends": trends}
+    return {
+        "from": from_date,
+        "to": to_date,
+        "buckets": [
+            {_camel_case(key): value for key, value in item.items()}
+            for item in trends
+        ]
+    }
