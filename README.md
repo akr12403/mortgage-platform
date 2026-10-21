@@ -12,7 +12,7 @@ The Enterprise Mortgage Platform is an event-driven, microservices-based system 
 | **M2** | Agile & Data Foundation | 2 | `docs/milestones/m02.md` | **Completed** |
 | **M3** | Python Analytics | 3 | `docs/milestones/m03.md` | **Completed** |
 | **M4** | Java / Spring Backend | 4–5 | `docs/milestones/m04.md` | **Completed** |
-| **M5** | Microservices & Events | 6 | `docs/milestones/m05.md` | In review (`feature/M5-task5-fix`) |
+| **M5** | Microservices & Events | 6 | `docs/milestones/m05.md` | **Completed** |
 | **M6** | Security Engineering | 7–8 | `docs/milestones/m06.md` | Planned |
 | **M7** | AI / RAG Assistant | 9 | `docs/milestones/m07.md` | Planned |
 | **M8** | AWS & Data Platform | 10 | `docs/milestones/m08.md` | Planned |
@@ -43,7 +43,7 @@ All foundational requirements and baseline architecture documentation created du
 
 ---
 
-## 🚀 Milestone 5 Status: MICROSERVICES, EVENTS & CONTAINERS
+## 🚀 Milestone 5 Status: COMPLETED — MICROSERVICES, EVENTS & CONTAINERS
 
 M5 turns the repo into a documented, event-driven microservice architecture: contract-first APIs, lifecycle events over **SNS → SQS → consumers** with retries and DLQs, and three containerized services with health checks.
 
@@ -55,6 +55,19 @@ M5 turns the repo into a documented, event-driven microservice architecture: con
 | Events | [event-catalog.md](docs/architecture/event-catalog.md), JSON Schemas in [docs/architecture/events/](docs/architecture/events/) |
 | Messaging operations | [messaging-runbook.md](docs/operations/messaging-runbook.md) |
 | Demo & sign-off | [m5-demo-checklist.md](docs/operations/m5-demo-checklist.md), `bash scripts/m5-demo.sh` |
+
+### Verification evidence (local Docker stack, 2026-10-20)
+
+| Check | Result |
+| --- | --- |
+| `mortgage-service` tests (`mvn -B test`) | 41 passed, 0 skipped (includes `EventSchemaContractTest`) |
+| `servicing-service` tests (`mvn -B test`) | 13 passed |
+| Repository contract checks (`tests/contract`) | 20 passed: schemas ↔ examples ↔ catalog ↔ Java producer payloads ↔ OpenAPI |
+| `docker compose up --build -d` | postgres, localstack, mortgage-service, servicing-service, analytics-service **healthy** (Dockerfile `HEALTHCHECK`); `db-migrate`, `messaging-init` exited 0 |
+| `bash scripts/m5-demo.sh` | `MortgageCreated` → `LoanApproved` → `PaymentReceived` (idempotent replay, no duplicate) → `PaymentMissed` + `LoanDelinquent` consumed into servicing history and delinquency snapshot; one correlation ID traced HTTP → producer logs → consumer logs; poison event retried 3× (ERROR logged) then moved to `capstone-mortgage-servicing-dlq-dev` at ~90 s |
+| Error envelope | unknown mortgage → 404 `MORTGAGE_NOT_FOUND` with `correlationId` + `timestamp` |
+
+All M5 Definition of Done items and their evidence: [docs/operations/m5-demo-checklist.md](docs/operations/m5-demo-checklist.md).
 
 ### Run the stack
 
