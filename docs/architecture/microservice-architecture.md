@@ -9,6 +9,7 @@ M5 turns "multiple services in a repo" into a documented, event-driven microserv
 | Why we split this way; API versioning and breaking-change policy; consumer expectations | [ADR-002](../adr/ADR-002-microservices-decomposition.md) |
 | Event names, producers, consumers, schema versions, evolution policy | [event-catalog.md](./event-catalog.md), JSON Schemas in [events/](./events/) |
 | HTTP contracts | [`docs/api/*-openapi.yaml`](../api/) |
+| ERD (incl. M5 tables) and resilience patterns | [erd.md](./erd.md), [resilience.md](./resilience.md) |
 | Queues, DLQs, retries, replay, troubleshooting | [messaging-runbook.md](../operations/messaging-runbook.md) |
 | Demo and sign-off | [m5-demo-checklist.md](../operations/m5-demo-checklist.md), `scripts/m5-demo.sh` |
 
