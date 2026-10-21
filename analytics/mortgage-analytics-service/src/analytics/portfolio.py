@@ -16,8 +16,10 @@ def compute_portfolio_summary(df_mortgages: pd.DataFrame) -> dict:
     delinquent_mortgages = int((df_mortgages["status"] == "DELINQUENT").sum())
     outstanding_balance_total = float(df_mortgages["outstanding_balance"].sum())
     
-    # Delinquency rate formula: delinquent loans / total loans
-    delinquency_rate = float(delinquent_mortgages / total_mortgages) if total_mortgages > 0 else 0.0
+    # Canonical rule (guides/standards.md): DELINQUENT / (ACTIVE + DELINQUENT).
+    # PENDING and CLOSED mortgages are excluded from the denominator.
+    servicing_population = active_mortgages + delinquent_mortgages
+    delinquency_rate = float(delinquent_mortgages / servicing_population) if servicing_population > 0 else 0.0
 
     return {
         "total_mortgages": total_mortgages,

@@ -1,3 +1,5 @@
+-- M5: event_inbox for idempotent consumers (servicing-service owns this table) + baseline indexes.
+-- Idempotent: safe to re-run on existing volumes (applied by the db-migrate compose service).
 CREATE TABLE IF NOT EXISTS event_inbox (
     event_id UUID PRIMARY KEY,
     processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

@@ -1,15 +1,30 @@
+import os
 import uuid
 import logging
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from src.api.routes import analytics, documents
+from src.messaging.bootstrap import start_analytics_consumer
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s service=mortgage-analytics-service - %(message)s",
+)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Mortgage Analytics Service", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    consumer = start_analytics_consumer(app)
+    yield
+    if consumer is not None:
+        consumer.stop()
+
+
+app = FastAPI(title="Mortgage Analytics Service", version="1.0.0", lifespan=lifespan)
 
 @app.middleware("http")
 async def correlation_id_middleware(request: Request, call_next):

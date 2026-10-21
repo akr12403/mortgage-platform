@@ -1,23 +1,67 @@
+# Local M5 stack: PostgreSQL + LocalStack (SNS/SQS) + 3 services.
+#   docker compose up --build -d   then   docker compose ps   (all should be "healthy")
+# Values can be overridden from a root .env file (copy .env.example). No secrets are baked into images.
+
+x-db-env: &db-env
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: ${POSTGRES_DB:-mortgage_intel}
+  POSTGRES_USER: ${POSTGRES_USER:-mortgage_app}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+
+# LocalStack accepts any credentials; real AWS would use a profile/role instead (never commit keys).
+x-aws-env: &aws-env
+  AWS_REGION: ${AWS_REGION:-us-east-1}
+  AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL_DOCKER:-http://localstack:4566}
+  AWS_ACCESS_KEY_ID: ${LOCALSTACK_ACCESS_KEY_ID:-test}
+  AWS_SECRET_ACCESS_KEY: ${LOCALSTACK_SECRET_ACCESS_KEY:-test}
+
 services:
   postgres:
     image: postgres:17.7
     container_name: capstone-postgres
     environment:
-      POSTGRES_USER: mortgage_app
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: mortgage_intel
+      POSTGRES_USER: ${POSTGRES_USER:-mortgage_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-mortgage_intel}
     ports:
       - "5432:5432"
     volumes:
       - mortgage_platform_canonical_postgres_data_v2:/var/lib/postgresql/data
+      # First start of an EMPTY volume only: schema + seed.
       - ./database/migrations/001_core_schema.sql:/docker-entrypoint-initdb.d/01-core-schema.sql:ro
-      - ./database/migrations/002_event_inbox_and_indexes.sql:/docker-entrypoint-initdb.d/02-event-inbox-and-indexes.sql:ro
       - ./database/seed/seed_mortgage_data.sql:/docker-entrypoint-initdb.d/03-seed.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mortgage_app -d mortgage_intel"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+
+  # Applies the idempotent migrations (002+) on every `up`, so existing volumes get new tables too.
+  db-migrate:
+    image: postgres:17.7
+    container_name: capstone-db-migrate
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-mortgage_app}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      PGDATABASE: ${POSTGRES_DB:-mortgage_intel}
+    volumes:
+      - ./database/migrations:/migrations:ro
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -euo pipefail
+        for f in /migrations/0*.sql; do
+          case "$$(basename "$$f")" in 001_*) continue ;; esac
+          echo "Applying $$f"
+          psql -v ON_ERROR_STOP=1 -q -f "$$f"
+        done
+        echo "Migrations up to date"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   localstack:
     image: localstack/localstack:3.8.0
@@ -28,21 +72,22 @@ services:
       - SERVICES=sns,sqs
       - AWS_DEFAULT_REGION=us-east-1
     healthcheck:
-      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/4566"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4566/_localstack/health"]
       interval: 5s
       timeout: 3s
-      retries: 20
+      retries: 30
 
+  # Creates topic, per-consumer queues, DLQs, redrive policies and subscriptions (idempotent).
   messaging-init:
     image: localstack/localstack:3.8.0
-    container_name: mortgage-messaging-init
+    container_name: capstone-messaging-init
     entrypoint: ["/bin/bash"]
     command: ["/init/01-create-mortgage-messaging.sh"]
     environment:
-      - AWS_ENDPOINT_URL=http://localstack:4566
-      - AWS_DEFAULT_REGION=us-east-1
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
     volumes:
       - ./localstack/init/ready.d/01-create-mortgage-messaging.sh:/init/01-create-mortgage-messaging.sh:ro
     depends_on:
@@ -54,85 +99,64 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.mortgage-service
+    image: capstone/mortgage-service:dev
     container_name: mortgage-service
     ports:
       - "8080:8080"
     environment:
-      - SPRING_PROFILES_ACTIVE=dev
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB=mortgage_intel
-      - POSTGRES_USER=mortgage_app
-      - POSTGRES_PASSWORD=postgres
-      - AWS_ENDPOINT_URL=http://localstack:4566
-      - AWS_REGION=us-east-1
-      - SNS_TOPIC_ARN=arn:aws:sns:us-east-1:000000000000:capstone-mortgage-lifecycle-dev
+      <<: [*db-env, *aws-env]
+      SPRING_PROFILES_ACTIVE: dev
+      SNS_TOPIC_MORTGAGE_EVENTS: ${SNS_TOPIC_MORTGAGE_EVENTS:-arn:aws:sns:us-east-1:000000000000:capstone-mortgage-lifecycle-dev}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
-      postgres:
-        condition: service_healthy
-      localstack:
-        condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
       messaging-init:
         condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8080'"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    # HEALTHCHECK (GET /actuator/health) is defined in docker/Dockerfile.mortgage-service
 
   servicing-service:
     build:
       context: .
       dockerfile: docker/Dockerfile.servicing-service
+    image: capstone/servicing-service:dev
     container_name: servicing-service
     ports:
       - "8081:8081"
     environment:
-      - SPRING_PROFILES_ACTIVE=dev
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB=mortgage_intel
-      - POSTGRES_USER=mortgage_app
-      - POSTGRES_PASSWORD=postgres
-      - AWS_ENDPOINT_URL=http://localstack:4566
-      - AWS_REGION=us-east-1
-      - SQS_QUEUE_SERVICING_EVENTS=http://localstack:4566/000000000000/capstone-mortgage-servicing-dev
+      <<: [*db-env, *aws-env]
+      SPRING_PROFILES_ACTIVE: dev
+      SQS_QUEUE_SERVICING_EVENTS: ${SQS_QUEUE_SERVICING_EVENTS_DOCKER:-http://localstack:4566/000000000000/capstone-mortgage-servicing-dev}
+      SQS_MAX_RECEIVE_COUNT: "3"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
-      postgres:
-        condition: service_healthy
-      localstack:
-        condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
       messaging-init:
         condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8081'"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    # HEALTHCHECK (GET /actuator/health) is defined in docker/Dockerfile.servicing-service
 
   analytics-service:
     build:
       context: .
       dockerfile: docker/Dockerfile.analytics-service
+      target: runtime
+    image: capstone/analytics-service:dev
     container_name: analytics-service
     ports:
       - "8000:8000"
     environment:
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB=mortgage_intel
-      - POSTGRES_USER=mortgage_app
-      - POSTGRES_PASSWORD=postgres
-      - AWS_ENDPOINT_URL=http://localstack:4566
-      - AWS_REGION=us-east-1
+      <<: [*db-env, *aws-env]
+      SQS_QUEUE_ANALYTICS_EVENTS: ${SQS_QUEUE_ANALYTICS_EVENTS_DOCKER:-http://localstack:4566/000000000000/capstone-mortgage-analytics-dev}
+      SQS_MAX_RECEIVE_COUNT: "3"
+      S3_BUCKET_DOCUMENTS: ${S3_BUCKET_DOCUMENTS:-capstone-mortgage-docs-dev}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      db-migrate:
+        condition: service_completed_successfully
+      messaging-init:
+        condition: service_completed_successfully
+    # HEALTHCHECK (GET /health) is defined in docker/Dockerfile.analytics-service
 
 volumes:
   mortgage_platform_canonical_postgres_data_v2:

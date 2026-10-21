@@ -74,6 +74,14 @@
             <artifactId>sqs</artifactId>
         </dependency>
 
+        <!-- Contract test: validates produced events against docs/architecture/events/*.schema.json -->
+        <dependency>
+            <groupId>com.networknt</groupId>
+            <artifactId>json-schema-validator</artifactId>
+            <version>1.0.87</version>
+            <scope>test</scope>
+        </dependency>
+
         <!-- Testing Starter -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -83,7 +83,22 @@ def test_payment_trends_contract():
 
 
 def test_http_error_uses_shared_error_envelope():
-    response = client.get("/api/v1/analytics/borrowers/BOR-999/risk-summary")
+    class NoRows:
+        def fetchone(self):
+            return None
+
+    class FakeDatabase:
+        def execute(self, query, params=None):
+            return NoRows()
+
+    def override_get_db():
+        yield FakeDatabase()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        response = client.get("/api/v1/analytics/borrowers/BOR-999/risk-summary")
+    finally:
+        app.dependency_overrides.clear()
 
     assert response.status_code == 404
     assert response.json()["code"] == "NOT_FOUND"

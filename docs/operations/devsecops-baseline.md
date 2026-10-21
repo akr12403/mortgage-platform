@@ -9,4 +9,4 @@
 - **Dependency Management (SCA)**: Utilizing manual `pip audit` / dependency review protocol until Milestone 9 CI integration.
 
 ## Pipeline Validation
-- Root `.gitlab-ci.yml` stub validated with `validate` stage secret detection hooks[cite: 4].
+- Root `.gitlab-ci.yml` stub validated with `validate` stage secret detection hooks.

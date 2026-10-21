@@ -76,7 +76,7 @@ INSERT INTO delinquency (mortgage_id, delinquent_since, days_past_due, severity)
 SELECT m.id, '2026-02-15', 45, 'MODERATE' FROM mortgage m WHERE m.mortgage_external_id = 'MTG-1002';
 
 INSERT INTO delinquency (mortgage_id, delinquent_since, days_past_due, severity)
-SELECT m.id, '2026-01-02', 88, 'CRITICAL' FROM mortgage m WHERE m.mortgage_external_id = 'MTG-1005';
+SELECT m.id, '2026-01-02', 88, 'SEVERE' FROM mortgage m WHERE m.mortgage_external_id = 'MTG-1005';  -- 60-89 DPD band
 
 -- 5. PAYMENTS (Including scheduled, posted, and missed/delinquent scenarios)
 INSERT INTO payment (mortgage_id, due_date, paid_date, amount, status)

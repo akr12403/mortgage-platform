@@ -17,7 +17,7 @@ By the end of M5, the platform must meet the following production-grade objectiv
 - Runnable local services via Docker Compose with health checks, explicit configuration, and reproducible startup.
 - Live end-to-end demo scenario covering mortgage creation, approval, payment posting, delinquency triggering, and analytics aggregation.
 - Runtime evidence for retry behavior, failed event processing, and consumer deduplication using the `event_inbox` store.
-- Known implementation limits documented, including the fact that analytics reads canonical PostgreSQL tables instead of consuming the queue in the current M5 implementation.
+- Known implementation limits documented (shared database for reads, publish-after-commit instead of a transactional outbox, in-memory dedupe in the analytics consumer, no auth until M6) — see `docs/operations/m5-demo-checklist.md`.
 
 ## In-Scope Functionality
 - **Borrower & Mortgage Onboarding**: Ingestion and management of borrower profiles, income verification data, and loan application lifecycles.

@@ -12,7 +12,7 @@ The Enterprise Mortgage Platform is an event-driven, microservices-based system 
 | **M2** | Agile & Data Foundation | 2 | `docs/milestones/m02.md` | **Completed** |
 | **M3** | Python Analytics | 3 | `docs/milestones/m03.md` | **Completed** |
 | **M4** | Java / Spring Backend | 4–5 | `docs/milestones/m04.md` | **Completed** |
-| **M5** | Microservices & Events | 6 | `docs/milestones/m05.md` | Planned |
+| **M5** | Microservices & Events | 6 | `docs/milestones/m05.md` | In review (`feature/M5-task5-fix`) |
 | **M6** | Security Engineering | 7–8 | `docs/milestones/m06.md` | Planned |
 | **M7** | AI / RAG Assistant | 9 | `docs/milestones/m07.md` | Planned |
 | **M8** | AWS & Data Platform | 10 | `docs/milestones/m08.md` | Planned |
@@ -43,20 +43,47 @@ All foundational requirements and baseline architecture documentation created du
 
 ---
 
-## 🚀 Milestone 5 Status: MICROSERVICES + EVENTS
-Milestone 5 formalizes the system as a runnable containerized microservice platform with contract-first communication, event-driven lifecycle processing, DLQ + retry behavior, and service-specific ownership boundaries.
+## 🚀 Milestone 5 Status: MICROSERVICES, EVENTS & CONTAINERS
 
-### What is included
-- **Documented microservice architecture**: `mortgage-service`, `servicing-service`, and `analytics-service` with explicit ownership and runtime topology.
-- **Contract-first APIs**: documented request/response shapes under `docs/api/` and live HTTP contracts validated at runtime.
-- **Event-driven mortgage lifecycle**: SNS topic + SQS servicing queue + retries + DLQ + consumer deduplication via `event_inbox`.
-- **Operational readiness**: Compose-based container startup, health checks, localstack infrastructure, and M5 demo validation.
+M5 turns the repo into a documented, event-driven microservice architecture: contract-first APIs, lifecycle events over **SNS → SQS → consumers** with retries and DLQs, and three containerized services with health checks.
 
-### Primary docs to review
-- [docs/architecture/microservice-architecture.md](docs/architecture/microservice-architecture.md)
-- [docs/api/openapi-mortgage-platform.yaml](docs/api/openapi-mortgage-platform.yaml)
-- [docs/operations/m5-demo-checklist.md](docs/operations/m5-demo-checklist.md)
-- [docs/architecture/event-catalog.md](docs/architecture/event-catalog.md)
+| Area | Where |
+| --- | --- |
+| Architecture overview (start here) | [docs/architecture/microservice-architecture.md](docs/architecture/microservice-architecture.md) |
+| Boundaries, ownership, ADR | [application-architecture.md](docs/architecture/application-architecture.md), [service-ownership-matrix.md](docs/architecture/service-ownership-matrix.md), [ADR-002](docs/adr/ADR-002-microservices-decomposition.md) |
+| API contracts (v1) | [mortgage-service](docs/api/mortgage-service-openapi.yaml), [servicing-service](docs/api/servicing-service-openapi.yaml), [analytics](docs/api/mortgage-analytics-service-openapi.yaml), [Postman](docs/api/postman/mortgage-platform-m5.postman_collection.json) |
+| Events | [event-catalog.md](docs/architecture/event-catalog.md), JSON Schemas in [docs/architecture/events/](docs/architecture/events/) |
+| Messaging operations | [messaging-runbook.md](docs/operations/messaging-runbook.md) |
+| Demo & sign-off | [m5-demo-checklist.md](docs/operations/m5-demo-checklist.md), `bash scripts/m5-demo.sh` |
+
+### Run the stack
+
+```bash
+cp .env.example .env            # optional; defaults work without it
+docker compose up --build -d
+docker compose ps               # postgres, localstack, mortgage-service, servicing-service, analytics-service -> healthy
+curl localhost:8080/actuator/health; curl localhost:8081/actuator/health; curl localhost:8000/health
+bash scripts/m5-demo.sh         # end-to-end demo incl. DLQ
+```
+
+Do **not** use `docker compose down -v` unless you intend to wipe the database volume (it re-seeds on next start).
+
+### Testing
+
+```bash
+# Java (mount the repo root so the event-schema contract test can read docs/)
+for s in mortgage-service servicing-service; do
+  docker run --rm -v "$PWD":/workspace -v "$HOME/.m2":/root/.m2 -w /workspace/services/$s \
+    maven:3.9-eclipse-temurin-17 mvn -B test
+done
+
+# Python analytics (dedicated test stage; runtime image carries no test tooling)
+docker build -f docker/Dockerfile.analytics-service --target test -t capstone/analytics-tests .
+docker run --rm capstone/analytics-tests
+
+# Repository contract checks (schemas <-> examples <-> catalog <-> Java producer records)
+docker run --rm -v "$PWD":/w -w /w python:3.14.7-slim sh -c "pip install -q pytest jsonschema && python -m pytest -q tests/contract"
+```
 
 ---
 

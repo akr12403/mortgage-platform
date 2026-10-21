@@ -1,30 +1,37 @@
 # Mortgage Analytics Service
 
-Python 3.11 service providing portfolio analytics, data normalization, S3 document storage integration, and REST endpoints.
+Python (FastAPI) service providing portfolio analytics, data normalization, S3 document storage, and — from M5 — an optional SQS consumer that refreshes a portfolio snapshot when lifecycle events arrive. Port `8000`, health at `GET /health`. Contract: [`docs/api/mortgage-analytics-service-openapi.yaml`](../../docs/api/mortgage-analytics-service-openapi.yaml).
 
-## Portfolio Analytics & Formulas
+## Portfolio analytics & formulas
 
-The analytics engine (`src/analytics/portfolio.py`) processes normalized DataFrames to compute the following core metrics[cite: 4]:
+`src/repositories/mortgage_repository.py` (SQL, used by the API) and `src/analytics/portfolio.py` (pandas) compute:
 
-* **Total Mortgages**: Count of all loan records (`len(df_mortgages)`)[cite: 4].
-* **Active / Delinquent Loans**: Segmented counts based on the `status` attribute (`ACTIVE` or `DELINQUENT`)[cite: 4].
-* **Outstanding Balance Total**: Sum of the `outstanding_balance` field across all valid mortgage records[cite: 4].
-* **Delinquency Rate**: The proportion of delinquent mortgages relative to the total portfolio count (`delinquent_mortgages / total_mortgages`)[cite: 4].
-* **Borrower Risk Summary**: Aggregated metrics grouped by `borrower_external_id`, computing total active mortgages, sum of outstanding balances, and total delinquent loans[cite: 4].
-* **Payment Trends**: Monthly payment aggregations using `pd.Grouper` on `paid_date`, summing the total posted amount and computing the on-time ratio (`paid_date <= due_date`)[cite: 4].
+* **Total mortgages**: count of all mortgage rows.
+* **Active / delinquent**: counts by `status` (`ACTIVE`, `DELINQUENT`).
+* **Outstanding balance total**: sum of `outstanding_balance`.
+* **Delinquency rate** (canonical, `guides/standards.md`): `DELINQUENT / (ACTIVE + DELINQUENT)` — `PENDING` and `CLOSED` mortgages are excluded from the denominator.
+* **Borrower risk summary**: per `borrower_external_id`, active+delinquent mortgage count, outstanding balance, delinquent count.
+* **Payment trends**: monthly `POSTED` amount and on-time ratio (`paid_date <= due_date`).
 
-## Local Testing (Without AWS)
+## Event consumer (M5, optional queue)
 
-This service uses `boto3` to interact with AWS S3. For local development and automated testing without real AWS credentials, we use **moto** to mock S3 interactions in-memory.
+When `SQS_QUEUE_ANALYTICS_EVENTS` is set, a background thread long-polls `capstone-mortgage-analytics-dev` (subscribed to the `capstone-mortgage-lifecycle-dev` SNS topic). Each lifecycle event refreshes the portfolio snapshot. It dedupes on `eventId` (bounded in-memory cache — the snapshot refresh is naturally idempotent), acknowledges only after success, and logs failures at ERROR; after 3 receives SQS moves the message to `capstone-mortgage-analytics-dlq-dev`. Inspect with `GET /api/v1/analytics/event-stats`.
 
-### Running Tests
-To run tests with mocked AWS services:
-```powershell
-pytest
+## Local setup
 
-## Local Setup
-```powershell
+```bash
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+source .venv/bin/activate            # Windows: .\.venv\Scripts\Activate.ps1
+pip install -r requirements-dev.txt  # runtime deps + pytest/moto/httpx
 uvicorn src.api.main:app --reload --port 8000
+```
+
+`requirements.txt` holds runtime dependencies only (what the Docker image installs); test tooling lives in `requirements-dev.txt`.
+
+## Tests
+
+S3 calls are mocked with **moto**; the event consumer is tested without AWS.
+
+```bash
+python -m pytest -q tests
+```

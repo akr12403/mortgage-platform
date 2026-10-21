@@ -1,173 +1,356 @@
 openapi: 3.0.3
 info:
-  title: Mortgage Service API
+  title: mortgage-service API
   version: v1
-  description: Core origination, borrower management, and payment transaction APIs for the Enterprise Mortgage Platform.
+  description: |
+    Origination, underwriting (approval workflow stub), payments and delinquency evaluation.
+    Publishes lifecycle events (see docs/architecture/event-catalog.md) after each successful commit.
+    Breaking-change policy: ADR-002. All errors use the shared ErrorEnvelope.
 servers:
-  - url: http://localhost:8080/api/v1
+  - url: http://localhost:8080
+tags:
+  - name: borrowers
+  - name: mortgages
+  - name: payments
+  - name: delinquency
 paths:
-  /borrowers:
+  /api/v1/borrowers:
     post:
-      summary: Register a new borrower
-      operationId: registerBorrower
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/BorrowerRequest'
-      responses:
-        '201':
-          description: Borrower created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BorrowerResponse'
-        '400':
-          $ref: '#/components/responses/ErrorResponse'
-  /mortgages:
-    post:
-      summary: Create a new mortgage application
-      operationId: createMortgage
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/MortgageRequest'
-      responses:
-        '201':
-          description: Mortgage created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MortgageResponse'
-        '400':
-          $ref: '#/components/responses/ErrorResponse'
-  /mortgages/{id}/payments:
-    post:
-      summary: Post a payment against a mortgage
-      operationId: postPayment
+      tags: [borrowers]
+      summary: Register a borrower
+      operationId: createBorrower
       parameters:
-        - name: id
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BorrowerRequest' }
+      responses:
+        '201':
+          description: Borrower created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Borrower' }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v1/borrowers/{borrowerExternalId}:
+    get:
+      tags: [borrowers]
+      summary: Get a borrower by business ID
+      operationId: getBorrower
+      parameters:
+        - name: borrowerExternalId
           in: path
           required: true
-          description: Mortgage Business ID (e.g., MTG-1001)
-          schema:
-            type: string
+          schema: { type: string, pattern: '^BOR-[0-9]{3}$', example: BOR-001 }
+      responses:
+        '200':
+          description: Borrower
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Borrower' }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/v1/mortgages:
+    post:
+      tags: [mortgages]
+      summary: Create a mortgage (status PENDING) with optional nested loan
+      description: |
+        Publishes `MortgageCreated`. If `loan.underwritingDecision` is `APPROVED`, the approval workflow runs
+        immediately: the mortgage becomes `ACTIVE` and `LoanApproved` is published. `DECLINED` closes it.
+      operationId: createMortgage
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: '#/components/schemas/PaymentRequest'
+            schema: { $ref: '#/components/schemas/MortgageCreateRequest' }
+      responses:
+        '201':
+          description: Mortgage created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Mortgage' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404':
+          description: Borrower not found (code BORROWER_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '409':
+          description: MORTGAGE_ALREADY_EXISTS or LOAN_ALREADY_EXISTS
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    get:
+      tags: [mortgages]
+      summary: List a borrower's mortgages (paged)
+      operationId: listMortgagesByBorrower
+      parameters:
+        - name: borrowerId
+          in: query
+          required: true
+          schema: { type: string, example: BOR-001 }
+        - name: page
+          in: query
+          schema: { type: integer, default: 0, minimum: 0 }
+        - name: size
+          in: query
+          schema: { type: integer, default: 10, minimum: 1 }
       responses:
         '200':
-          description: Payment posted successfully and balance updated
+          description: Spring Data page of mortgages
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PaymentResponse'
+                type: object
+                properties:
+                  content:
+                    type: array
+                    items: { $ref: '#/components/schemas/Mortgage' }
+                  totalElements: { type: integer }
+                  totalPages: { type: integer }
+                  number: { type: integer }
+                  size: { type: integer }
+        '400': { $ref: '#/components/responses/Error' }
+  /api/v1/mortgages/{mortgageExternalId}:
+    get:
+      tags: [mortgages]
+      summary: Get a mortgage with its loan
+      operationId: getMortgage
+      parameters:
+        - $ref: '#/components/parameters/MortgageExternalId'
+      responses:
+        '200':
+          description: Mortgage
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Mortgage' }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/v1/mortgages/{mortgageExternalId}/underwriting-decision:
+    post:
+      tags: [mortgages]
+      summary: Approval workflow stub — record the underwriting decision for a PENDING loan
+      description: |
+        `APPROVED` → loan APPROVED, mortgage `PENDING → ACTIVE`, publishes `LoanApproved`.
+        `DECLINED` → loan DECLINED, mortgage `PENDING → CLOSED`, no event.
+        Role checks arrive with RBAC in M6; until then `decidedByRole` is recorded as stated.
+      operationId: recordUnderwritingDecision
+      parameters:
+        - $ref: '#/components/parameters/MortgageExternalId'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UnderwritingDecisionRequest' }
+      responses:
+        '200':
+          description: Decision recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Mortgage' }
+        '400': { $ref: '#/components/responses/Error' }
         '404':
-          $ref: '#/components/responses/ErrorResponse'
-        '400':
-          $ref: '#/components/responses/ErrorResponse'
-
+          description: MORTGAGE_NOT_FOUND or LOAN_NOT_FOUND
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '409':
+          description: UNDERWRITING_ALREADY_DECIDED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /api/v1/mortgages/{mortgageExternalId}/payments:
+    get:
+      tags: [payments]
+      summary: List payments ordered by due date
+      operationId: listPayments
+      parameters:
+        - $ref: '#/components/parameters/MortgageExternalId'
+      responses:
+        '200':
+          description: Payments
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Payment' }
+        '404': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [payments]
+      summary: Post a payment attempt
+      description: |
+        `POSTED` (requires `paidDate`) reduces the outstanding balance and publishes `PaymentReceived`.
+        `FAILED`/`REVERSED` for a due date on or before today publishes `PaymentMissed`; if the installment is
+        30+ days past due and the mortgage is ACTIVE, it becomes DELINQUENT and `LoanDelinquent` is published.
+        Optional `Idempotency-Key`: the same key and body returns the original payment with
+        `Idempotent-Replayed: true` and no new event; the same key with a different body returns 409 IDEMPOTENCY_KEY_REUSED.
+      operationId: postPayment
+      parameters:
+        - $ref: '#/components/parameters/MortgageExternalId'
+        - $ref: '#/components/parameters/CorrelationId'
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string, maxLength: 255, example: pay-MTG-1001-2026-03-01 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PaymentRequest' }
+      responses:
+        '200':
+          description: Payment recorded (or replayed)
+          headers:
+            Idempotent-Replayed:
+              schema: { type: boolean }
+            X-Correlation-Id:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Payment' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v1/delinquency-evaluations:
+    post:
+      tags: [delinquency]
+      summary: Run the delinquency batch now (also runs daily at 02:00 UTC)
+      description: |
+        Finds ACTIVE mortgages with an unpaid installment (SCHEDULED/FAILED/REVERSED, no POSTED payment for the
+        same due date) 30+ days past due. For each it publishes `PaymentMissed` and `LoanDelinquent` and sets
+        status DELINQUENT. Idempotent: already-delinquent mortgages are not re-evaluated.
+      operationId: runDelinquencyEvaluation
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Evaluation result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DelinquencyScanResponse' }
+  /actuator/health:
+    get:
+      summary: Liveness/readiness (used by the container HEALTHCHECK)
+      operationId: health
+      responses:
+        '200':
+          description: UP
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: UP }
 components:
+  parameters:
+    MortgageExternalId:
+      name: mortgageExternalId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^MTG-[0-9]{4}$', example: MTG-1001 }
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      description: UUID v4. Generated if absent; echoed in the response and copied into published events.
+      schema: { type: string, format: uuid, example: 7c9e6679-7425-40de-944b-e07fc1f90ae7 }
+  responses:
+    Error:
+      description: Shared error envelope (guides/standards.md)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
   schemas:
     BorrowerRequest:
       type: object
-      required: [firstName, lastName, email, phone]
+      required: [borrowerExternalId, firstName, lastName, email]
       properties:
-        firstName:
-          type: string
-          example: Jane
-        lastName:
-          type: string
-          example: Doe
-        email:
-          type: string
-          example: jane.doe@example.com
-        phone:
-          type: string
-          example: 555-0199
-    BorrowerResponse:
+        borrowerExternalId: { type: string, pattern: '^BOR-[0-9]{3}$', example: BOR-010 }
+        firstName: { type: string, example: Alex }
+        lastName: { type: string, example: Rivera }
+        email: { type: string, format: email, example: alex.rivera@example.test }
+        phone: { type: string, example: '+1-555-0100' }
+        dateOfBirth: { type: string, format: date, example: '1988-04-12' }
+    Borrower:
+      allOf:
+        - $ref: '#/components/schemas/BorrowerRequest'
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+    MortgageCreateRequest:
+      type: object
+      required: [mortgageExternalId, borrowerExternalId, originalAmount, outstandingBalance, originationDate]
+      properties:
+        mortgageExternalId: { type: string, pattern: '^MTG-[0-9]{4}$', example: MTG-1010 }
+        borrowerExternalId: { type: string, pattern: '^BOR-[0-9]{3}$', example: BOR-001 }
+        originalAmount: { type: number, minimum: 0.01, example: 320000.00 }
+        outstandingBalance: { type: number, minimum: 0, example: 318500.00 }
+        originationDate: { type: string, format: date, example: '2025-06-01' }
+        loan: { $ref: '#/components/schemas/LoanTerms' }
+    LoanTerms:
+      type: object
+      required: [loanExternalId, interestRate, termMonths, underwritingDecision]
+      properties:
+        loanExternalId: { type: string, pattern: '^LOAN-[0-9]{4}$', example: LOAN-2010 }
+        interestRate: { type: number, minimum: 0.0001, example: 0.0650 }
+        termMonths: { type: integer, minimum: 1, example: 360 }
+        underwritingDecision: { type: string, enum: [PENDING, APPROVED, DECLINED], example: APPROVED }
+    Mortgage:
       type: object
       properties:
-        borrowerId:
-          type: string
-          example: BOR-001
-        firstName:
-          type: string
-        lastName:
-          type: string
-    MortgageRequest:
+        id: { type: string, format: uuid }
+        mortgageExternalId: { type: string, example: MTG-1010 }
+        borrowerExternalId: { type: string, example: BOR-001 }
+        status: { type: string, enum: [PENDING, ACTIVE, DELINQUENT, CLOSED], example: ACTIVE }
+        originalAmount: { type: number, example: 320000.00 }
+        outstandingBalance: { type: number, example: 318500.00 }
+        originationDate: { type: string, format: date, example: '2025-06-01' }
+        loan:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/LoanTerms'
+    UnderwritingDecisionRequest:
       type: object
-      required: [borrowerExternalId, originalAmount, propertyAddress]
+      required: [decision]
       properties:
-        borrowerExternalId:
-          type: string
-          example: BOR-001
-        originalAmount:
-          type: number
-          format: double
-          example: 320000.00
-        propertyAddress:
-          type: string
-          example: 123 Maple Street, Fairfax, VA
-    MortgageResponse:
-      type: object
-      properties:
-        mortgageExternalId:
-          type: string
-          example: MTG-1010
-        status:
-          type: string
-          example: PENDING
-        originalAmount:
-          type: number
-          format: double
+        decision: { type: string, enum: [APPROVED, DECLINED] }
+        decidedByRole: { type: string, enum: [UNDERWRITER, ADMIN], default: UNDERWRITER }
     PaymentRequest:
       type: object
-      required: [paymentAmount, paidDate]
+      required: [dueDate, amount, status]
       properties:
-        paymentAmount:
-          type: number
-          format: double
-          example: 1850.00
-        paidDate:
-          type: string
-          format: date
-          example: 2026-03-02
-    PaymentResponse:
+        dueDate: { type: string, format: date, example: '2026-03-01' }
+        paidDate: { type: string, format: date, nullable: true, example: '2026-03-02', description: Required when status is POSTED }
+        amount: { type: number, minimum: 0.01, example: 1850.00 }
+        status: { type: string, enum: [SCHEDULED, POSTED, FAILED, REVERSED], example: POSTED }
+    Payment:
+      allOf:
+        - $ref: '#/components/schemas/PaymentRequest'
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+    DelinquencyScanResponse:
       type: object
       properties:
-        paymentId:
-          type: string
-        outstandingBalanceAfter:
-          type: number
-          format: double
-          example: 317650.00
+        evaluatedAt: { type: string, format: date-time }
+        mortgagesTransitioned: { type: integer }
+        transitions:
+          type: array
+          items:
+            type: object
+            properties:
+              mortgageExternalId: { type: string, example: MTG-1004 }
+              delinquentSince: { type: string, format: date }
+              daysPastDue: { type: integer, example: 45 }
+              severity: { type: string, enum: [MODERATE, SEVERE, CRITICAL] }
     ErrorEnvelope:
       type: object
+      required: [code, message, correlationId, timestamp]
       properties:
-        code:
-          type: string
-          example: MORTGAGE_NOT_FOUND
-        message:
-          type: string
-          example: Mortgage MTG-9999 was not found
-        correlationId:
-          type: string
-          example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
-        timestamp:
-          type: string
-          format: date-time
-          example: 2026-03-15T14:30:00Z
-  responses:
-      ErrorResponse:
-        description: Standard error response envelope matching project standards
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ErrorEnvelope'
+        code: { type: string, example: MORTGAGE_NOT_FOUND }
+        message: { type: string, example: Mortgage MTG-9999 was not found }
+        correlationId: { type: string, example: 7c9e6679-7425-40de-944b-e07fc1f90ae7 }
+        timestamp: { type: string, format: date-time, example: '2026-03-15T14:30:00Z' }

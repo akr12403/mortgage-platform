@@ -1,108 +1,130 @@
 openapi: 3.0.3
 info:
-  title: Servicing Service API
+  title: servicing-service API
   version: v1
-  description: Post-closing servicing audit logs, history tracking, and delinquency risk evaluations for the Enterprise Mortgage Platform.
+  description: |
+    Servicing history and delinquency snapshot, projected from lifecycle events consumed from
+    SQS capstone-mortgage-servicing-dev (see docs/architecture/event-catalog.md). Reads are eventually
+    consistent with mortgage-service (typically a few seconds). Breaking-change policy: ADR-002.
 servers:
-  - url: http://localhost:8081/api/v1
+  - url: http://localhost:8081
 paths:
-  /mortgages/{id}/servicing-history:
+  /api/v1/mortgages/{mortgageExternalId}/servicing-history:
     get:
-      summary: Retrieve chronological servicing history events for a mortgage
+      summary: Chronological servicing history for a mortgage
       operationId: getServicingHistory
       parameters:
-        - name: id
-          in: path
-          required: true
-          description: Mortgage Business ID conforming to MTG-{4 digits} format
-          schema:
-            type: string
-            example: MTG-1001
+        - $ref: '#/components/parameters/MortgageExternalId'
+        - $ref: '#/components/parameters/CorrelationId'
       responses:
         '200':
-          description: List of servicing history audit events retrieved successfully
+          description: History, oldest first
           content:
             application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ServicingEventDto'
-        '404':
-          $ref: '#/components/responses/ErrorResponse'
-  /mortgages/{id}/delinquency:
+              schema: { $ref: '#/components/schemas/ServicingHistoryResponse' }
+              example:
+                mortgageExternalId: MTG-1001
+                events:
+                  - eventTime: '2026-03-15T14:30:01Z'
+                    eventType: PAYMENT_POSTED
+                    description: Payment 1850.00 posted; balance now 317650.00
+        '404': { $ref: '#/components/responses/Error' }
+  /api/v1/mortgages/{mortgageExternalId}/delinquency:
     get:
-      summary: Evaluate real-time delinquency status and risk metrics for a mortgage
-      operationId: getDelinquencyStatus
+      summary: Current delinquency snapshot (populated from LoanDelinquent events)
+      operationId: getDelinquency
       parameters:
-        - name: id
-          in: path
-          required: true
-          description: Mortgage Business ID conforming to MTG-{4 digits} format
-          schema:
-            type: string
-            example: MTG-1002
+        - $ref: '#/components/parameters/MortgageExternalId'
+        - $ref: '#/components/parameters/CorrelationId'
       responses:
         '200':
-          description: Delinquency status evaluated successfully
+          description: Snapshot; delinquency fields are null when the mortgage has never been delinquent
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/DelinquencyResponse'
-        '404':
-          $ref: '#/components/responses/ErrorResponse'
-
-components:
-  schemas:
-    ServicingEventDto:
-      type: object
-      properties:
-        eventId:
-          type: string
-          format: uuid
-        eventType:
-          type: string
-          example: PaymentReceived
-        eventTime:
-          type: string
-          format: date-time
-        details:
-          type: string
-          example: Payment of 1850.00 processed successfully.
-    DelinquencyResponse:
-      type: object
-      properties:
-        mortgageExternalId:
-          type: string
-          example: MTG-1002
-        status:
-          type: string
-          example: DELINQUENT
-        daysPastDue:
-          type: int32
-          example: 45
-        severity:
-          type: string
-          example: MODERATE
-    ErrorEnvelope:
-      type: object
-      properties:
-        code:
-          type: string
-          example: SERVICING_RECORD_NOT_FOUND
-        message:
-          type: string
-          example: Servicing history for mortgage MTG-9999 was not found
-        correlationId:
-          type: string
-          example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
-        timestamp:
-          type: string
-          format: date-time
-          example: 2026-03-15T14:30:00Z
-  responses:
-      ErrorResponse:
-        description: Standard error response envelope
+              schema: { $ref: '#/components/schemas/DelinquencyResponse' }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/v1/mortgages/{mortgageExternalId}/servicing-events:
+    post:
+      summary: Record a manual servicing note (e.g. ESCROW_ANALYSIS)
+      description: Lifecycle events arrive via SQS; this endpoint is for agent-entered notes only.
+      operationId: createServicingEvent
+      parameters:
+        - $ref: '#/components/parameters/MortgageExternalId'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ErrorEnvelope'
+              type: object
+              required: [eventType]
+              properties:
+                eventType: { type: string, pattern: '^[A-Z][A-Z0-9_]{2,49}$', example: ESCROW_ANALYSIS }
+                description: { type: string, maxLength: 2000 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServicingEvent' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /actuator/health:
+    get:
+      summary: Liveness/readiness (used by the container HEALTHCHECK)
+      operationId: health
+      responses:
+        '200':
+          description: UP
+components:
+  parameters:
+    MortgageExternalId:
+      name: mortgageExternalId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^MTG-[0-9]{4}$', example: MTG-1001 }
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      schema: { type: string, format: uuid }
+  responses:
+    Error:
+      description: Shared error envelope (guides/standards.md); unknown mortgage returns code MORTGAGE_NOT_FOUND
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  schemas:
+    ServicingEvent:
+      type: object
+      properties:
+        eventTime: { type: string, format: date-time }
+        eventType:
+          type: string
+          description: |
+            Lifecycle-derived values: MORTGAGE_CREATED, LOAN_APPROVED, PAYMENT_POSTED, PAYMENT_MISSED,
+            DELINQUENCY_ASSIGNED. Seed data and manual notes may contain other values (e.g. ESCROW_ANALYSIS).
+        description: { type: string }
+    ServicingHistoryResponse:
+      type: object
+      properties:
+        mortgageExternalId: { type: string, example: MTG-1001 }
+        events:
+          type: array
+          items: { $ref: '#/components/schemas/ServicingEvent' }
+    DelinquencyResponse:
+      type: object
+      properties:
+        mortgageExternalId: { type: string, example: MTG-1002 }
+        status: { type: string, enum: [PENDING, ACTIVE, DELINQUENT, CLOSED], example: DELINQUENT }
+        delinquentSince: { type: string, format: date, nullable: true, example: '2026-01-10' }
+        daysPastDue: { type: integer, nullable: true, example: 45 }
+        severity: { type: string, enum: [MODERATE, SEVERE, CRITICAL], nullable: true, example: MODERATE }
+    ErrorEnvelope:
+      type: object
+      required: [code, message, correlationId, timestamp]
+      properties:
+        code: { type: string, example: MORTGAGE_NOT_FOUND }
+        message: { type: string, example: Mortgage MTG-9999 was not found }
+        correlationId: { type: string }
+        timestamp: { type: string, format: date-time }

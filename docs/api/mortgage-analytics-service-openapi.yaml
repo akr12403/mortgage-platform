@@ -1,0 +1,202 @@
+openapi: 3.0.3
+info:
+  title: mortgage-analytics-service API
+  version: v1
+  description: |
+    Portfolio analytics over the canonical PostgreSQL tables, document upload (M3), and the optional
+    lifecycle-event consumer (SQS capstone-mortgage-analytics-dev). FastAPI also serves its generated
+    spec at /openapi.json; this file is the reviewed contract. Breaking-change policy: ADR-002.
+servers:
+  - url: http://localhost:8000
+paths:
+  /health:
+    get:
+      summary: Health (used by the container HEALTHCHECK)
+      operationId: health
+      responses:
+        '200':
+          description: UP
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: UP }
+                  service: { type: string, example: mortgage-analytics-service }
+  /api/v1/analytics/portfolio-summary:
+    get:
+      summary: Portfolio counts, balance and delinquency rate
+      description: delinquencyRate = DELINQUENT / (ACTIVE + DELINQUENT), per guides/standards.md.
+      operationId: getPortfolioSummary
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortfolioSummary' }
+        '500': { $ref: '#/components/responses/Error' }
+  /api/v1/analytics/delinquency:
+    get:
+      summary: Delinquent mortgages with their snapshot
+      operationId: getDelinquencies
+      responses:
+        '200':
+          description: Delinquent mortgages
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                  delinquentMortgages:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        mortgageExternalId: { type: string }
+                        status: { type: string }
+                        delinquentSince: { type: string, format: date }
+                        daysPastDue: { type: integer }
+                        severity: { type: string }
+  /api/v1/analytics/borrowers/{borrowerExternalId}/risk-summary:
+    get:
+      summary: Borrower risk summary
+      operationId: getBorrowerRisk
+      parameters:
+        - name: borrowerExternalId
+          in: path
+          required: true
+          schema: { type: string, example: BOR-001 }
+      responses:
+        '200':
+          description: Summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  borrowerExternalId: { type: string }
+                  firstName: { type: string }
+                  lastName: { type: string }
+                  totalMortgages: { type: integer, description: ACTIVE + DELINQUENT }
+                  totalOutstandingBalance: { type: number }
+                  delinquentCount: { type: integer }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/v1/analytics/payment-trends:
+    get:
+      summary: Monthly posted amount and on-time rate
+      operationId: getPaymentTrends
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date, example: '2025-01-01' } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date, example: '2026-12-31' } }
+      responses:
+        '200':
+          description: Buckets by month
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  from: { type: string, format: date }
+                  to: { type: string, format: date }
+                  buckets:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        period: { type: string, example: 2026-01 }
+                        postedAmount: { type: number, example: 22000.00 }
+                        onTimeRate: { type: number, example: 0.95 }
+  /api/v1/analytics/event-stats:
+    get:
+      summary: Lifecycle events consumed and the last refreshed portfolio snapshot
+      operationId: getEventStats
+      responses:
+        '200':
+          description: Consumer statistics ({"consumerEnabled":false} when SQS_QUEUE_ANALYTICS_EVENTS is unset)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  consumerEnabled: { type: boolean }
+                  eventsProcessed:
+                    type: object
+                    additionalProperties: { type: integer }
+                    example: { MortgageCreated: 1, PaymentReceived: 2 }
+                  duplicatesIgnored: { type: integer }
+                  failures: { type: integer }
+                  lastEvent:
+                    type: object
+                    nullable: true
+                    properties:
+                      eventId: { type: string, format: uuid }
+                      eventType: { type: string }
+                      mortgageExternalId: { type: string }
+                      correlationId: { type: string }
+                      occurredAt: { type: string, format: date-time }
+                  portfolioSnapshot:
+                    allOf: [{ $ref: '#/components/schemas/PortfolioSummary' }]
+                    nullable: true
+                  snapshotRefreshedAt: { type: string, format: date-time, nullable: true }
+  /api/v1/documents/upload:
+    post:
+      summary: Upload a mortgage document to S3 and record its metadata (M3)
+      operationId: uploadDocument
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [mortgage_external_id, document_type, file]
+              properties:
+                mortgage_external_id: { type: string, example: MTG-1001 }
+                document_type: { type: string, example: INCOME_VERIFICATION }
+                file: { type: string, format: binary }
+      responses:
+        '200':
+          description: Uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  documentId: { type: string, format: uuid }
+                  mortgageExternalId: { type: string }
+                  s3Key: { type: string }
+                  status: { type: string, example: UPLOADED }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+components:
+  parameters:
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      schema: { type: string, format: uuid }
+  responses:
+    Error:
+      description: Shared error envelope (guides/standards.md)
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message, correlationId, timestamp]
+            properties:
+              code: { type: string, example: NOT_FOUND }
+              message: { type: string }
+              correlationId: { type: string }
+              timestamp: { type: string, format: date-time }
+  schemas:
+    PortfolioSummary:
+      type: object
+      properties:
+        totalMortgages: { type: integer, example: 12 }
+        activeMortgages: { type: integer, example: 10 }
+        delinquentMortgages: { type: integer, example: 2 }
+        outstandingBalanceTotal: { type: number, example: 3842500.00 }
+        delinquencyRate: { type: number, example: 0.2 }
+        asOf: { type: string, format: date-time }

@@ -13,18 +13,18 @@ variables:
 secret_detection:
   stage: validate
   script:
-    - echo "Configure GitLab Secret Detection or gitleaks — fail on findings"[cite: 4]
+    - echo "Configure GitLab Secret Detection or gitleaks — fail on findings"
 
 python-test:
   stage: test
   image: python:3.11
   script:
-    - cd analytics/mortgage-analytics-service && pip install -r requirements.txt && pytest
+    - cd analytics/mortgage-analytics-service && pip install -r requirements-dev.txt && python -m pytest -q tests
   rules:
     - changes:
         - analytics/mortgage-analytics-service/**/*
 
-java-test:
+java-test-mortgage:
   stage: test
   image: maven:3.9-eclipse-temurin-17
   script:
@@ -32,19 +32,41 @@ java-test:
   rules:
     - changes:
         - services/mortgage-service/**/*
+        - docs/architecture/events/**/*
+
+java-test-servicing:
+  stage: test
+  image: maven:3.9-eclipse-temurin-17
+  script:
+    - cd services/servicing-service && mvn -B test
+  rules:
+    - changes:
+        - services/servicing-service/**/*
+
+contract-test:
+  stage: test
+  image: python:3.11
+  script:
+    - pip install pytest jsonschema && python -m pytest -q tests/contract
+  rules:
+    - changes:
+        - docs/architecture/**/*
+        - docs/api/**/*
+        - services/**/events/**/*
+        - services/servicing-service/**/*
 
 sast:
   stage: security
   script:
-    - echo "Add GitLab SAST template in Milestone 6/9"[cite: 4]
+    - echo "Add GitLab SAST template in Milestone 6/9"
 
 sca:
   stage: security
   script:
-    - echo "Add dependency scanning — block Critical CVEs per team policy"[cite: 4]
+    - echo "Add dependency scanning — block Critical CVEs per team policy"
 
 docker-build:
   stage: build
   script:
-    - echo "Milestone 5+ build and push images; scan in M9"[cite: 4]
+    - echo "Milestone 5+ build and push images; scan in M9"
   when: manual

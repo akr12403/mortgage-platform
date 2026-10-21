@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 from src.api.dependencies import get_db
 from src.repositories.mortgage_repository import MortgageRepository
@@ -81,3 +82,12 @@ def get_payment_trends(
             for item in trends
         ]
     }
+
+
+@router.get("/event-stats")
+def get_event_stats(request: Request):
+    """Lifecycle events consumed from capstone-mortgage-analytics-dev and the refreshed snapshot."""
+    processor = getattr(request.app.state, "analytics_processor", None)
+    if processor is None:
+        return {"consumerEnabled": False}
+    return jsonable_encoder({"consumerEnabled": True, **processor.stats()})

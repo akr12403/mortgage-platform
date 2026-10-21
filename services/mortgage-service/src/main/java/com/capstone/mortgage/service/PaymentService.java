@@ -2,107 +2,111 @@ package com.capstone.mortgage.service;
 
 import com.capstone.mortgage.entity.Mortgage;
 import com.capstone.mortgage.entity.Payment;
-import com.capstone.mortgage.entity.ServicingHistory;
 import com.capstone.mortgage.events.EventPayloads;
+import com.capstone.mortgage.exception.BusinessRuleException;
+import com.capstone.mortgage.exception.ResourceNotFoundException;
 import com.capstone.mortgage.repository.MortgageRepository;
 import com.capstone.mortgage.repository.PaymentRepository;
-import com.capstone.mortgage.repository.ServicingHistoryRepository;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
 
+/**
+ * Payment posting. POSTED reduces the balance and publishes PaymentReceived; a FAILED/REVERSED
+ * attempt for a past due date publishes PaymentMissed and may trigger LoanDelinquent.
+ * Optional Idempotency-Key header: same key + same body replays the original payment, same key +
+ * different body returns 409.
+ */
 @Service
 public class PaymentService {
 
+    public record PaymentOutcome(Payment payment, boolean replayed) {}
+
     private final PaymentRepository paymentRepository;
     private final MortgageRepository mortgageRepository;
-    private final ServicingHistoryRepository servicingHistoryRepository;
-    private final EventPublisherService eventPublisher; // Added event publisher
+    private final EventPublisherService eventPublisher;
+    private final DelinquencyService delinquencyService;
     private final JdbcTemplate jdbcTemplate;
 
     public PaymentService(PaymentRepository paymentRepository,
                           MortgageRepository mortgageRepository,
-                          ServicingHistoryRepository servicingHistoryRepository,
                           EventPublisherService eventPublisher,
+                          DelinquencyService delinquencyService,
                           JdbcTemplate jdbcTemplate) {
         this.paymentRepository = paymentRepository;
         this.mortgageRepository = mortgageRepository;
-        this.servicingHistoryRepository = servicingHistoryRepository;
         this.eventPublisher = eventPublisher;
+        this.delinquencyService = delinquencyService;
         this.jdbcTemplate = jdbcTemplate;
     }
 
     @Transactional
     public Payment processPayment(String mortgageExternalId, Payment payment) {
-        Mortgage mortgage = mortgageRepository.findByMortgageExternalId(mortgageExternalId)
-                .orElseThrow(() -> new jakarta.persistence.EntityNotFoundException("Mortgage " + mortgageExternalId + " was not found"));
+        return processPayment(mortgageExternalId, payment, null).payment();
+    }
 
-        // 2. Associate payment and save
-        payment.setMortgage(mortgage);
-        Payment savedPayment = paymentRepository.save(payment);
+    @Transactional
+    public PaymentOutcome processPayment(String mortgageExternalId, Payment payment, String idempotencyKey) {
+        boolean idempotent = idempotencyKey != null && !idempotencyKey.isBlank();
+        String fingerprint = fingerprint(mortgageExternalId, payment);
 
-        // 3. Update mortgage outstanding balance (fall back to loanAmount if balance is null)
-        BigDecimal currentBalance = mortgage.getOutstandingBalance() != null
-            ? mortgage.getOutstandingBalance()
-            : mortgage.getOriginalAmount();
-
-        if ("POSTED".equals(payment.getStatus()) && currentBalance != null) {
-            mortgage.setOutstandingBalance(currentBalance.subtract(payment.getAmount()));
-            mortgageRepository.save(mortgage);
-        }
-
-        ServicingHistory history = new ServicingHistory();
-        history.setMortgageId(mortgage.getId());
-        if ("POSTED".equals(payment.getStatus())) {
-            history.setEventType("PAYMENT_POSTED");
-            history.setDescription("Payment posted for amount: " + payment.getAmount());
-            servicingHistoryRepository.save(history);
-            eventPublisher.publishEvent("PaymentReceived", new EventPayloads.PaymentReceivedPayload(
-                mortgage.getMortgageExternalId(), payment.getAmount(), payment.getPaidDate(),
-                mortgage.getOutstandingBalance()
-            ));
-        } else {
-            history.setEventType("PAYMENT_" + payment.getStatus());
-            history.setDescription("Payment " + payment.getStatus().toLowerCase() + " for amount: " + payment.getAmount());
-            servicingHistoryRepository.save(history);
-        }
-
-        if (("FAILED".equals(payment.getStatus()) || "REVERSED".equals(payment.getStatus()))
-            && payment.getDueDate() != null
-            && !payment.getDueDate().isAfter(java.time.LocalDate.now())) {
-            var missedPayload = new EventPayloads.PaymentMissedPayload(
-                mortgage.getMortgageExternalId(), payment.getDueDate(),
-                Math.max(0, java.time.temporal.ChronoUnit.DAYS.between(payment.getDueDate(), java.time.LocalDate.now()))
-            );
-            eventPublisher.publishEvent("PaymentMissed", missedPayload);
-
-            long daysPastDue = java.time.temporal.ChronoUnit.DAYS.between(payment.getDueDate(), java.time.LocalDate.now());
-            boolean successfulPaymentExists = Boolean.TRUE.equals(jdbcTemplate.queryForObject("""
-                    SELECT EXISTS (
-                        SELECT 1 FROM payment
-                        WHERE mortgage_id = ? AND due_date = ? AND status = 'POSTED'
-                    )
-                    """, Boolean.class, mortgage.getId(), payment.getDueDate()));
-            if (daysPastDue >= 30 && !successfulPaymentExists && !"DELINQUENT".equals(mortgage.getStatus())) {
-                mortgage.setStatus("DELINQUENT");
-                mortgageRepository.save(mortgage);
-                jdbcTemplate.update("""
-                        INSERT INTO delinquency (mortgage_id, delinquent_since, days_past_due, severity)
-                        VALUES (?, ?, ?, ?)
-                        ON CONFLICT (mortgage_id) DO UPDATE SET
-                            days_past_due = EXCLUDED.days_past_due,
-                            severity = EXCLUDED.severity
-                        """, mortgage.getId(), payment.getDueDate(), daysPastDue,
-                        daysPastDue >= 90 ? "CRITICAL" : daysPastDue >= 60 ? "SEVERE" : "MODERATE");
-                eventPublisher.publishEvent("LoanDelinquent", new EventPayloads.LoanDelinquentPayload(
-                        mortgage.getMortgageExternalId(), payment.getDueDate().toString(), daysPastDue,
-                        daysPastDue >= 90 ? "CRITICAL" : daysPastDue >= 60 ? "SEVERE" : "MODERATE"
-                ));
+        if (idempotent) {
+            List<Map<String, Object>> existing = jdbcTemplate.queryForList(
+                    "SELECT request_fingerprint, payment_id FROM idempotency_record WHERE idempotency_key = ?",
+                    idempotencyKey);
+            if (!existing.isEmpty()) {
+                if (!fingerprint.equals(existing.get(0).get("request_fingerprint"))) {
+                    throw BusinessRuleException.conflict("IDEMPOTENCY_KEY_REUSED",
+                            "Idempotency-Key " + idempotencyKey + " was already used with a different request");
+                }
+                UUID paymentId = (UUID) existing.get(0).get("payment_id");
+                Payment original = paymentRepository.findById(paymentId)
+                        .orElseThrow(() -> new IllegalStateException("Idempotency record points at missing payment " + paymentId));
+                return new PaymentOutcome(original, true);
             }
         }
 
-        return savedPayment;
+        Mortgage mortgage = mortgageRepository.findByMortgageExternalId(mortgageExternalId)
+                .orElseThrow(() -> ResourceNotFoundException.mortgage(mortgageExternalId));
+
+        if ("POSTED".equals(payment.getStatus()) && payment.getPaidDate() == null) {
+            throw BusinessRuleException.badRequest("VALIDATION_ERROR", "paidDate: is required when status is POSTED");
+        }
+
+        payment.setMortgage(mortgage);
+        // Flush so the payment row exists before the JDBC idempotency insert references it.
+        Payment savedPayment = paymentRepository.saveAndFlush(payment);
+
+        if ("POSTED".equals(payment.getStatus())) {
+            BigDecimal newBalance = mortgage.getOutstandingBalance().subtract(payment.getAmount()).max(BigDecimal.ZERO);
+            mortgage.setOutstandingBalance(newBalance);
+            mortgageRepository.save(mortgage);
+            eventPublisher.publishEvent("PaymentReceived", new EventPayloads.PaymentReceivedPayload(
+                    mortgage.getMortgageExternalId(), payment.getAmount(), payment.getPaidDate(), newBalance));
+        } else if ("FAILED".equals(payment.getStatus()) || "REVERSED".equals(payment.getStatus())) {
+            delinquencyService.onMissedPayment(mortgage, payment.getDueDate());
+        }
+
+        if (idempotent) {
+            jdbcTemplate.update(
+                    "INSERT INTO idempotency_record (idempotency_key, request_fingerprint, payment_id) VALUES (?, ?, ?)",
+                    idempotencyKey, fingerprint, savedPayment.getId());
+        }
+        return new PaymentOutcome(savedPayment, false);
+    }
+
+    private static String fingerprint(String mortgageExternalId, Payment payment) {
+        return String.join("|",
+                mortgageExternalId,
+                Objects.toString(payment.getDueDate(), ""),
+                Objects.toString(payment.getPaidDate(), ""),
+                payment.getAmount() == null ? "" : payment.getAmount().stripTrailingZeros().toPlainString(),
+                Objects.toString(payment.getStatus(), ""));
     }
 }

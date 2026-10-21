@@ -1,0 +1,18 @@
+# Keep build contexts small and secrets out of image layers
+.git
+**/.idea
+**/.vscode
+**/.DS_Store
+**/target
+**/.venv
+**/venv
+**/__pycache__
+**/.pytest_cache
+**/*.pyc
+**/.env
+**/*.env
+!**/.env.example
+**/*.pem
+**/*.key
+database/*.dump
+docs

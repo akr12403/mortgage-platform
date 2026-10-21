@@ -1,173 +1,64 @@
-# M5 Demo Checklist
+# M5 Demo & Sign-off Checklist
 
-## Goal
-Demonstrate the mortgage intelligence platform as a containerized, contract-first microservice architecture with event-driven servicing and analytics.
+Automated run: `bash scripts/m5-demo.sh` (about 3 minutes). Each step below says what to show and what "pass" looks like.
 
-## Required runtime state
-Before starting:
-- Docker Compose is running
-- PostgreSQL is healthy
-- LocalStack is healthy
-- `mortgage-service` is healthy on `:8080`
-- `servicing-service` is healthy on `:8081`
-- `analytics-service` is healthy on `:8000`
+## Before the demo
 
 ```bash
 cd ~/projects/mortgage-platform
-docker compose ps
-curl -sS http://localhost:8080/actuator/health
-curl -sS http://localhost:8081/actuator/health
-curl -sS http://localhost:8000/health
+docker compose up --build -d
+docker compose ps        # postgres, localstack, 3 services "healthy"; db-migrate & messaging-init "Exited (0)"
 ```
 
-## 1. Queue and DLQ verification
-```bash
-docker compose exec -T localstack awslocal sqs get-queue-attributes \
-  --queue-url http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/capstone-mortgage-servicing-dev \
-  --attribute-names RedrivePolicy VisibilityTimeout
+Run the tests (commands are in the root `README.md` under **Testing**). All three suites must be green.
 
-docker compose exec -T localstack awslocal sqs get-queue-attributes \
-  --queue-url http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/capstone-mortgage-servicing-dlq-dev \
-  --attribute-names ApproximateNumberOfMessages
-```
+## Demo scenario (maps to the milestone's demo script)
 
-Expected result:
-- `RedrivePolicy` includes `maxReceiveCount=3`
-- `VisibilityTimeout` is `30`
-- the DLQ exists and is reachable
+| # | Show | Pass criteria |
+| --- | --- | --- |
+| 1 | **Create mortgage → `MortgageCreated`** (script step 1). Optional decoupling proof: `docker compose stop servicing-service`, create a mortgage, show `ApproximateNumberOfMessages=1` on `capstone-mortgage-servicing-dev`, then `docker compose start servicing-service` and watch it drain | 201, `status: PENDING`; mortgage-service log `Published MortgageCreated eventId=…`; history shows `MORTGAGE_CREATED` |
+| 1b | **Approval workflow stub → `LoanApproved`** (step 2) | 200, `status: ACTIVE`; history `LOAN_APPROVED` |
+| 2 | **Post payment → `PaymentReceived` consumed; history updated** (steps 3–4) | balance reduced; history `PAYMENT_POSTED`; replay with the same `Idempotency-Key` returns `Idempotent-Replayed: true` and adds **no** second history row |
+| 2b | **Delinquency transition → `PaymentMissed` + `LoanDelinquent`** (step 5) | mortgage `DELINQUENT`; `GET :8081/…/delinquency` shows `daysPastDue ≥ 30`, `severity`; analytics delinquency rate increases |
+| 2c | **Correlation ID** (step 6) | the same UUID appears in the HTTP response header, mortgage-service log, event envelope, and servicing consumer log |
+| 3 | **Break consumer → DLQ** (step 7) | servicing log: `ERROR … attempt 1/3`, `2/3`, `final attempt 3/3; SQS will move … to the DLQ`; DLQ depth +1 after about 90–120 s; no history row for `MTG-0000` |
+| 4 | **`docker compose ps` all healthy** (step 8) | health status comes from the Dockerfile `HEALTHCHECK` (`/actuator/health`, `/health`) |
 
-## 2. Portfolio analytics baseline
-```bash
-curl -sS http://localhost:8000/api/v1/analytics/portfolio-summary
-curl -sS http://localhost:8000/api/v1/analytics/delinquency
-curl -sS http://localhost:8000/api/v1/analytics/borrowers/BOR-001/risk-summary
-curl -sS "http://localhost:8000/api/v1/analytics/payment-trends?from=2025-01-01&to=2026-12-31"
-```
-
-Expected result:
-- portfolio summary returns the overall counts and balances
-- delinquency route returns mortgage risk details
-- borrower-risk endpoint returns a single borrower summary or a `404` with the shared error envelope
-- payment trends returns a `from`, `to`, and `buckets` body
-
-## 3. Mortgage creation
-```bash
-curl -sS -i -X POST http://localhost:8080/api/v1/mortgages \
-  -H 'Content-Type: application/json' \
-  -H 'X-Correlation-Id: M5-demo-001' \
-  -d '{
-    "mortgageExternalId":"MTG-9015",
-    "borrowerExternalId":"BOR-001",
-    "originalAmount":320000.00,
-    "outstandingBalance":318500.00,
-    "originationDate":"2025-06-01",
-    "loan":{
-      "loanExternalId":"LOAN-9015",
-      "interestRate":0.0650,
-      "termMonths":360,
-      "underwritingDecision":"APPROVED"
-    }
-  }'
-```
-
-Expected result:
-- `201 Created`
-- response contains `mortgageExternalId`, `borrowerExternalId`, and nested `loan`
-
-Validate the canonical DB and servicing history:
+Useful manual commands:
 
 ```bash
-curl -sS http://localhost:8080/api/v1/mortgages/MTG-9015
-curl -sS http://localhost:8081/api/v1/mortgages/MTG-9015/servicing-history
-
-docker compose exec -T postgres psql -U mortgage_app -d mortgage_intel \
-  -c "SELECT mortgage_external_id, status, outstanding_balance FROM mortgage WHERE mortgage_external_id='MTG-9015';" \
-  -c "SELECT event_type, description, event_time FROM servicing_history WHERE mortgage_id=(SELECT id FROM mortgage WHERE mortgage_external_id='MTG-9015') ORDER BY event_time;"
+Q=http://localhost:4566/000000000000
+docker compose exec -T localstack awslocal sqs get-queue-attributes --queue-url $Q/capstone-mortgage-servicing-dev --attribute-names All
+docker compose exec -T localstack awslocal sqs receive-message --queue-url $Q/capstone-mortgage-servicing-dlq-dev --attribute-names All --visibility-timeout 5
+docker inspect --format '{{json .State.Health}}' mortgage-service | python3 -m json.tool
+curl -s localhost:8000/api/v1/analytics/event-stats | python3 -m json.tool
 ```
 
-Expected result:
-- service returns the nested loan and approved underwriting decision
-- servicing history contains `MortgageCreated` and `LoanApproved`
+## Validation (from the milestone)
 
-## 4. Payment posting
-```bash
-curl -sS -i -X POST http://localhost:8080/api/v1/mortgages/MTG-9015/payments \
-  -H 'Content-Type: application/json' \
-  -H 'X-Correlation-Id: M5-demo-002' \
-  -d '{
-    "dueDate":"2026-10-01",
-    "paidDate":"2026-10-02",
-    "amount":1500.00,
-    "status":"POSTED"
-  }'
-```
+- [ ] Publish test event; consumer processes within expected time (servicing history updated within ~5 s)
+- [ ] Force consumer failure → message lands in the DLQ (demo step 7)
+- [ ] All three services start in containers and pass the health check
+- [ ] Event catalog matches implemented types (`EventSchemaContractTest` + `tests/contract/test_event_contracts.py` green)
 
-Expected result:
-- `200 OK`
-- outstanding balance is reduced by the payment amount
-- payment appears in `GET /api/v1/mortgages/{id}/payments`
-- servicing history contains `PaymentReceived`
+## Definition of Done → evidence
 
-## 5. Delinquency transition
-```bash
-curl -sS -i -X POST http://localhost:8080/api/v1/mortgages/MTG-9015/payments \
-  -H 'Content-Type: application/json' \
-  -H 'X-Correlation-Id: M5-demo-003' \
-  -d '{
-    "dueDate":"2026-08-01",
-    "paidDate":null,
-    "amount":1250.00,
-    "status":"FAILED"
-  }'
+| DoD item | Evidence in repo |
+| --- | --- |
+| Service boundaries and ownership documented | `docs/architecture/application-architecture.md`, `service-ownership-matrix.md`, `docs/adr/ADR-002-microservices-decomposition.md` |
+| API contracts published for each service | `docs/api/{mortgage-service,servicing-service,mortgage-analytics-service}-openapi.yaml`, Postman collection in `docs/api/postman/` |
+| Event schemas created and cataloged | `docs/architecture/events/*.schema.json`, `docs/architecture/event-catalog.md` |
+| SNS/SQS integration working with retries | `EventPublisherService`, `EventConsumerService`, analytics `event_consumer.py`; demo steps 1–5 |
+| DLQ configured and demonstrated | `localstack/init/ready.d/01-create-mortgage-messaging.sh`; demo step 7 |
+| Dockerfiles for three services | `docker/Dockerfile.*` (multi-stage, non-root, `HEALTHCHECK`) |
+| Containers run with health checks validated | `docker compose ps` healthy |
+| Messaging runbook | `docs/operations/messaging-runbook.md` |
+| Merged to develop via reviewed PR(s) | PR from `feature/M5-task5-fix` → `develop` with a reviewer approval |
 
-curl -sS http://localhost:8081/api/v1/mortgages/MTG-9015/delinquency
-curl -sS http://localhost:8081/api/v1/mortgages/MTG-9015/servicing-history
-```
+## Known limits (stated, not hidden)
 
-Expected result:
-- mortgage becomes `DELINQUENT` when 30+ days past due and no successful payment exists
-- delinquency snapshot includes `daysPastDue` and `severity`
-- history includes `PaymentMissed` and `LoanDelinquent`
-
-## 6. Poison-event DLQ test
-```bash
-docker compose exec -T localstack awslocal sqs send-message \
-  --queue-url http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/capstone-mortgage-servicing-dev \
-  --message-body '{
-    "eventId":"80b4c87c-77d1-4384-a737-3c595b311401",
-    "eventType":"MortgageCreated",
-    "schemaVersion":"1.0",
-    "occurredAt":"2026-10-20T12:00:00Z",
-    "correlationId":"80b4c87c-77d1-4384-a737-3c595b311402",
-    "payload":{"mortgageExternalId":"MTG-NOT-FOUND","borrowerExternalId":"BOR-001","originalAmount":100000.00,"status":"PENDING"}
-  }'
-```
-
-Wait ~90 seconds, then check:
-
-```bash
-docker compose logs --tail=80 servicing-service
-docker compose exec -T localstack awslocal sqs get-queue-attributes \
-  --queue-url http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/capstone-mortgage-servicing-dlq-dev \
-  --attribute-names ApproximateNumberOfMessages
-```
-
-Expected result:
-- consumer logs a failure and leaves the message to retry
-- after three receives, the event appears in the DLQ
-- no `servicing_history` row is created for `MTG-NOT-FOUND`
-
-## 7. Review checklist
-Use this checklist during M5 review:
-- [ ] Compose stack is healthy and all services are up
-- [ ] Java and Python test suites pass
-- [ ] Mortgage create route returns the correct business IDs and nested loan
-- [ ] Payment path updates balance correctly and emits `PaymentReceived`
-- [ ] Delinquency path triggers `LoanDelinquent` and stores severity
-- [ ] SQS + DLQ redrive policy is configured with `maxReceiveCount=3`
-- [ ] The consumer deduplicates repeated events via `event_inbox`
-- [ ] Error responses contain `code`, `message`, `correlationId`, and `timestamp`
-- [ ] Documentation and runtime behavior match the event examples and contracts
-
-## 8. M5 sign-off statement
-The milestone is considered complete for local-capstone demonstration only when all of the above pass and any implementation limits are documented as explicit decisions, not hidden assumptions.
+- One shared PostgreSQL instance with single-writer-per-table ownership. Separate schemas or databases are future work (ADR-002).
+- Publish-after-commit, not a transactional outbox. An SNS outage right after commit loses that event, and the loss is logged at ERROR.
+- The analytics consumer dedupes in memory, so a restart forgets seen IDs. That's acceptable because its only side effect is an idempotent snapshot refresh.
+- No authentication yet: the approval stub takes `decidedByRole` from the request until RBAC lands in M6.
+- LocalStack has no persistence; restarting it recreates empty queues.

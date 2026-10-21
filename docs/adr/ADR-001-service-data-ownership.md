@@ -1,6 +1,6 @@
 # ADR-001: Servicing Service Data Ownership and Persistence Strategy
 
-* **Status**: Accepted
+* **Status**: Accepted — amended by [ADR-002](./ADR-002-microservices-decomposition.md) (M5): `servicing_history` and `delinquency` are now written only by `servicing-service`, projected from lifecycle events; `mortgage-service` no longer writes them.
 * **Context**: Task 4.3 – Microservice Architecture & Separation
 * **Date**: October 12, 2026
 

@@ -2,6 +2,8 @@ server:
   port: 8080
 
 spring:
+  application:
+    name: mortgage-service
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:mortgage_intel}
     username: ${POSTGRES_USER:mortgage_app}
@@ -31,6 +33,12 @@ management:
 
 aws:
   region: ${AWS_REGION:us-east-1}
-  endpoint-url: ${AWS_ENDPOINT_URL:http://localhost:4566}
+  # Set only for LocalStack (e.g. http://localstack:4566). Leave empty for real AWS.
+  endpoint-url: ${AWS_ENDPOINT_URL:}
   sns:
-    topic-arn: ${SNS_TOPIC_ARN:arn:aws:sns:us-east-1:000000000000:capstone-mortgage-lifecycle-dev}
+    topic-arn: ${SNS_TOPIC_MORTGAGE_EVENTS:arn:aws:sns:us-east-1:000000000000:capstone-mortgage-lifecycle-dev}
+
+app:
+  delinquency:
+    # Daily batch for the 30-day delinquency rule (UTC). Also triggerable via POST /api/v1/delinquency-evaluations.
+    scan-cron: ${DELINQUENCY_SCAN_CRON:0 0 2 * * *}

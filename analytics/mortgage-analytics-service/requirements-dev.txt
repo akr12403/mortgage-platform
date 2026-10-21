@@ -1,0 +1,5 @@
+# Test/dev tooling — NOT installed in the runtime image
+-r requirements.txt
+pytest
+moto[s3]
+httpx
