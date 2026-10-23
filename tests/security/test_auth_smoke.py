@@ -40,7 +40,8 @@ def call(method, url, body=None, token=None):
         with urllib.request.urlopen(req, timeout=10) as resp:
             return resp.status, dict(resp.headers), json.loads(resp.read() or b"{}")
     except urllib.error.HTTPError as err:
-        return err.code, dict(err.headers), json.loads(err.read() or b"{}")
+        with err:
+            return err.code, dict(err.headers), json.loads(err.read() or b"{}")
 
 
 def claims(token):

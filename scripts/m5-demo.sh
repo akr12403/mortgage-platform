@@ -30,6 +30,15 @@ if [[ -z "$SEED_PASSWORD" ]]; then
 fi
 TOKEN=""
 
+login() {  # login USERNAME -> prints access token (empty on failure)
+  local body
+  body=$(SEED_PASSWORD="$SEED_PASSWORD" U="$1" python3 -c 'import json,os; print(json.dumps({"username":os.environ["U"],"password":os.environ["SEED_PASSWORD"]}))')
+  curl -sS -X POST $MS/api/v1/auth/login -H 'Content-Type: application/json' -d "$body" \
+    | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("accessToken",""))
+except Exception: print("")' || true
+}
+
 days_ago() {  # portable (macOS BSD date / GNU date)
   date -u -v-"$1"d +%F 2>/dev/null || date -u -d "$1 days ago" +%F
 }
@@ -58,11 +67,7 @@ echo "Demo mortgage: $MTG   correlationId: $CID"
 step "0b. Authentication (M6 Task 6.1): no token -> 401, login -> JWT"
 printf 'GET without token -> '; curl -sS -o /dev/null -w '%{http_code}\n' $MS/api/v1/mortgages/MTG-1001
 printf 'GET with tampered token -> '; curl -sS -o /dev/null -w '%{http_code}\n' -H 'Authorization: Bearer abc.def.ghi' $SS/api/v1/mortgages/MTG-1001/servicing-history
-LOGIN_BODY=$(SEED_PASSWORD="$SEED_PASSWORD" python3 -c 'import json,os; print(json.dumps({"username":"admin@capstone.local","password":os.environ["SEED_PASSWORD"]}))')
-TOKEN=$(curl -sS -X POST $MS/api/v1/auth/login -H 'Content-Type: application/json' -d "$LOGIN_BODY" \
-  | python3 -c 'import json,sys
-try: print(json.load(sys.stdin).get("accessToken",""))
-except Exception: print("")' || true)
+TOKEN=$(login admin@capstone.local)
 if [[ -z "$TOKEN" ]]; then echo "Login failed - check AUTH_SEED_PASSWORD matches what mortgage-service seeded." >&2; exit 1; fi
 echo "Logged in as admin@capstone.local; token claims:"
 python3 - "$TOKEN" <<'PY'
@@ -72,14 +77,26 @@ claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)
 print("  sub=%(sub)s roles=%(roles)s iss=%(iss)s exp=%(exp)s" % claims)
 PY
 
+step "0c. RBAC (M6 Task 6.2): SERVICING_AGENT can read history, cannot create a mortgage; SUPPORT cannot approve"
+SA_TOKEN=$(login servicing@capstone.local)
+SUP_TOKEN=$(login support@capstone.local)
+printf 'servicing@ GET servicing-history -> '; curl -sS -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $SA_TOKEN" $SS/api/v1/mortgages/MTG-1001/servicing-history
+printf 'servicing@ POST /mortgages       -> '; curl -sS -X POST -H "Authorization: Bearer $SA_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"mortgageExternalId":"MTG-0001","borrowerExternalId":"BOR-001","originalAmount":1,"outstandingBalance":1,"originationDate":"2025-06-01"}' $MS/api/v1/mortgages; echo
+printf 'support@ POST loan approval       -> '; curl -sS -X POST -H "Authorization: Bearer $SUP_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"decision":"APPROVED"}' $MS/api/v1/mortgages/MTG-1001/underwriting-decision; echo
+
 step "1. Create mortgage -> MortgageCreated (status PENDING)"
 call POST $MS/api/v1/mortgages "{
   \"mortgageExternalId\":\"$MTG\",\"borrowerExternalId\":\"BOR-001\",
   \"originalAmount\":320000.00,\"outstandingBalance\":318500.00,\"originationDate\":\"2025-06-01\",
   \"loan\":{\"loanExternalId\":\"$LOAN\",\"interestRate\":0.0650,\"termMonths\":360,\"underwritingDecision\":\"PENDING\"}}" | json
 
-step "2. Approval workflow stub -> LoanApproved (PENDING -> ACTIVE)"
-call POST $MS/api/v1/mortgages/$MTG/underwriting-decision '{"decision":"APPROVED","decidedByRole":"UNDERWRITER"}' | json
+step "2. Approval workflow stub (as underwriter@) -> LoanApproved (PENDING -> ACTIVE)"
+ADMIN_TOKEN=$TOKEN
+TOKEN=$(login underwriter@capstone.local)
+call POST $MS/api/v1/mortgages/$MTG/underwriting-decision '{"decision":"APPROVED"}' | json
+TOKEN=$ADMIN_TOKEN
 
 step "3. Post payment with Idempotency-Key -> PaymentReceived"
 PAY="{\"dueDate\":\"$(days_ago 5)\",\"paidDate\":\"$(days_ago 3)\",\"amount\":1850.00,\"status\":\"POSTED\"}"

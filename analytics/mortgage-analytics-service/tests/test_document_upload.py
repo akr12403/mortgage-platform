@@ -6,6 +6,7 @@ from moto import mock_aws
 
 from src.api.dependencies import get_db
 from src.api.main import app
+from tests.conftest import auth_header
 
 
 class FakeDatabase:
@@ -40,6 +41,7 @@ def test_document_upload_s3():
             "/api/v1/documents/upload",
             data={"mortgage_external_id": "MTG-1002", "document_type": "DEED"},
             files={"file": ("test_deed.txt", b"Mock file content", "text/plain")},
+            headers=auth_header("SERVICING_AGENT"),
         )
     finally:
         app.dependency_overrides.clear()

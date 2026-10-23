@@ -6,13 +6,18 @@ info:
     Portfolio analytics over the canonical PostgreSQL tables, document upload (M3), and the optional
     lifecycle-event consumer (SQS capstone-mortgage-analytics-dev). FastAPI also serves its generated
     spec at /openapi.json; this file is the reviewed contract. Breaking-change policy: ADR-002.
+    M6: every operation except /health requires `Authorization: Bearer <jwt>` issued by mortgage-service
+    POST /api/v1/auth/login, plus one of the roles in `x-roles`. 401 UNAUTHORIZED / INVALID_TOKEN, 403 ACCESS_DENIED.
 servers:
   - url: http://localhost:8000
+security:
+  - bearerAuth: []
 paths:
   /health:
     get:
       summary: Health (used by the container HEALTHCHECK)
       operationId: health
+      security: []
       responses:
         '200':
           description: UP
@@ -28,9 +33,12 @@ paths:
       summary: Portfolio counts, balance and delinquency rate
       description: delinquencyRate = DELINQUENT / (ACTIVE + DELINQUENT), per guides/standards.md.
       operationId: getPortfolioSummary
+      x-roles: [ADMIN, UNDERWRITER, RISK_ANALYST]
       parameters:
         - $ref: '#/components/parameters/CorrelationId'
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '200':
           description: Summary
           content:
@@ -41,7 +49,10 @@ paths:
     get:
       summary: Delinquent mortgages with their snapshot
       operationId: getDelinquencies
+      x-roles: [ADMIN, UNDERWRITER, RISK_ANALYST]
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '200':
           description: Delinquent mortgages
           content:
@@ -64,12 +75,15 @@ paths:
     get:
       summary: Borrower risk summary
       operationId: getBorrowerRisk
+      x-roles: [ADMIN, UNDERWRITER, RISK_ANALYST]
       parameters:
         - name: borrowerExternalId
           in: path
           required: true
           schema: { type: string, example: BOR-001 }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '200':
           description: Summary
           content:
@@ -88,10 +102,13 @@ paths:
     get:
       summary: Monthly posted amount and on-time rate
       operationId: getPaymentTrends
+      x-roles: [ADMIN, UNDERWRITER, RISK_ANALYST]
       parameters:
         - { name: from, in: query, required: true, schema: { type: string, format: date, example: '2025-01-01' } }
         - { name: to, in: query, required: true, schema: { type: string, format: date, example: '2026-12-31' } }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '200':
           description: Buckets by month
           content:
@@ -113,7 +130,10 @@ paths:
     get:
       summary: Lifecycle events consumed and the last refreshed portfolio snapshot
       operationId: getEventStats
+      x-roles: [ADMIN, UNDERWRITER, RISK_ANALYST]
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '200':
           description: Consumer statistics ({"consumerEnabled":false} when SQS_QUEUE_ANALYTICS_EVENTS is unset)
           content:
@@ -145,6 +165,7 @@ paths:
     post:
       summary: Upload a mortgage document to S3 and record its metadata (M3)
       operationId: uploadDocument
+      x-roles: [ADMIN, UNDERWRITER, SERVICING_AGENT]
       requestBody:
         required: true
         content:
@@ -157,6 +178,8 @@ paths:
                 document_type: { type: string, example: INCOME_VERIFICATION }
                 file: { type: string, format: binary }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '200':
           description: Uploaded
           content:
@@ -171,6 +194,12 @@ paths:
         '404': { $ref: '#/components/responses/Error' }
         '502': { $ref: '#/components/responses/Error' }
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token issued by mortgage-service POST /api/v1/auth/login (same JWT_SECRET and issuer).
   parameters:
     CorrelationId:
       name: X-Correlation-Id
@@ -178,6 +207,28 @@ components:
       required: false
       schema: { type: string, format: uuid }
   responses:
+    Unauthorized:
+      description: Missing (UNAUTHORIZED) or invalid/expired/tampered (INVALID_TOKEN) bearer token
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              code: { type: string, example: UNAUTHORIZED }
+              message: { type: string }
+              correlationId: { type: string }
+              timestamp: { type: string, format: date-time }
+    Forbidden:
+      description: Authenticated but the caller's role is not allowed (code ACCESS_DENIED); see x-roles
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              code: { type: string, example: ACCESS_DENIED }
+              message: { type: string }
+              correlationId: { type: string }
+              timestamp: { type: string, format: date-time }
     Error:
       description: Shared error envelope (guides/standards.md)
       content:

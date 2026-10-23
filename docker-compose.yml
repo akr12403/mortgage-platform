@@ -153,7 +153,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      <<: [*db-env, *aws-env]
+      <<: [*db-env, *aws-env, *jwt-env]
       SQS_QUEUE_ANALYTICS_EVENTS: ${SQS_QUEUE_ANALYTICS_EVENTS_DOCKER:-http://localstack:4566/000000000000/capstone-mortgage-analytics-dev}
       SQS_MAX_RECEIVE_COUNT: "3"
       S3_BUCKET_DOCUMENTS: ${S3_BUCKET_DOCUMENTS:-capstone-mortgage-docs-dev}

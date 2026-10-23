@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from src.api.routes import analytics, documents
 from src.messaging.bootstrap import start_analytics_consumer
+from src.api.security import validate_settings
 
 # Configure logging
 logging.basicConfig(
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_settings()  # fail fast if JWT_SECRET is missing/short
     consumer = start_analytics_consumer(app)
     yield
     if consumer is not None:
@@ -55,7 +57,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
             "correlationId": correlation_id,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-    return JSONResponse(status_code=exc.status_code, content=error_payload)
+    return JSONResponse(status_code=exc.status_code, content=error_payload, headers=getattr(exc, "headers", None))
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):

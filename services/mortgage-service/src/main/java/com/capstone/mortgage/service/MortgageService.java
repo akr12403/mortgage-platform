@@ -51,6 +51,12 @@ public class MortgageService {
 
     @Transactional
     public Mortgage saveMortgage(MortgageCreateRequest request) {
+        return saveMortgage(request, "UNDERWRITER");
+    }
+
+    /** @param decidingRole caller's role from the JWT, recorded as approvedByRole if the loan is approved at creation */
+    @Transactional
+    public Mortgage saveMortgage(MortgageCreateRequest request, String decidingRole) {
         if (mortgageRepository.existsByMortgageExternalId(request.mortgageExternalId())) {
             throw BusinessRuleException.conflict("MORTGAGE_ALREADY_EXISTS",
                     "Mortgage " + request.mortgageExternalId() + " already exists");
@@ -92,7 +98,7 @@ public class MortgageService {
             // A decision supplied at creation goes through the same approval workflow stub.
             String requestedDecision = request.loan().underwritingDecision();
             if (!"PENDING".equals(requestedDecision)) {
-                applyUnderwritingDecision(saved, savedLoan, requestedDecision, "UNDERWRITER");
+                applyUnderwritingDecision(saved, savedLoan, requestedDecision, decidingRole);
             }
         }
         return saved;

@@ -5,6 +5,7 @@ import com.capstone.mortgage.dto.MortgageResponse;
 import com.capstone.mortgage.dto.UnderwritingDecisionRequest;
 import com.capstone.mortgage.entity.Mortgage;
 import com.capstone.mortgage.entity.Payment;
+import com.capstone.mortgage.security.Rbac;
 import com.capstone.mortgage.service.MortgageService;
 import com.capstone.mortgage.service.PaymentService;
 import jakarta.validation.Valid;
@@ -12,6 +13,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -29,8 +31,9 @@ public class MortgageController {
     }
 
     @PostMapping
-    public ResponseEntity<MortgageResponse> createMortgage(@Valid @RequestBody MortgageCreateRequest request) {
-        Mortgage saved = mortgageService.saveMortgage(request);
+    public ResponseEntity<MortgageResponse> createMortgage(@Valid @RequestBody MortgageCreateRequest request,
+                                                           Authentication authentication) {
+        Mortgage saved = mortgageService.saveMortgage(request, decidingRole(authentication));
         return new ResponseEntity<>(MortgageResponse.from(saved), HttpStatus.CREATED);
     }
 
@@ -48,13 +51,24 @@ public class MortgageController {
         return ResponseEntity.ok(mortgages.map(MortgageResponse::from));
     }
 
-    /** Approval workflow stub (M5): records the underwriting decision and emits LoanApproved when approved. */
+    /**
+     * Approval workflow stub (M5): records the underwriting decision and emits LoanApproved when approved.
+     * Allowed roles: ADMIN, UNDERWRITER (enforced in SecurityConfig). The approvedByRole recorded on the event is the
+     * caller's own role from the JWT.
+     */
     @PostMapping("/{id}/underwriting-decision")
     public ResponseEntity<MortgageResponse> recordUnderwritingDecision(
             @PathVariable String id,
-            @Valid @RequestBody UnderwritingDecisionRequest request) {
-        Mortgage mortgage = mortgageService.recordUnderwritingDecision(id, request.decision(), request.roleOrDefault());
+            @Valid @RequestBody UnderwritingDecisionRequest request,
+            Authentication authentication) {
+        Mortgage mortgage = mortgageService.recordUnderwritingDecision(id, request.decision(), decidingRole(authentication));
         return ResponseEntity.ok(MortgageResponse.from(mortgage));
+    }
+
+    private static String decidingRole(Authentication authentication) {
+        boolean underwriter = authentication.getAuthorities().stream()
+                .anyMatch(a -> ("ROLE_" + Rbac.UNDERWRITER).equals(a.getAuthority()));
+        return underwriter ? Rbac.UNDERWRITER : Rbac.ADMIN;
     }
 
     @GetMapping("/{id}/payments")

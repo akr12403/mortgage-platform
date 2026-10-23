@@ -7,7 +7,7 @@ info:
     Publishes lifecycle events (see docs/architecture/event-catalog.md) after each successful commit.
     Breaking-change policy: ADR-002. All errors use the shared ErrorEnvelope.
     M6: every operation requires `Authorization: Bearer <jwt>` from POST /api/v1/auth/login, except login and
-    /actuator/health. Missing token → 401 UNAUTHORIZED; invalid/expired/tampered token → 401 INVALID_TOKEN.
+    /actuator/health, plus one of the roles listed in its `x-roles` (403 ACCESS_DENIED otherwise; Task 6.2). Missing token → 401 UNAUTHORIZED; invalid/expired/tampered token → 401 INVALID_TOKEN.
 servers:
   - url: http://localhost:8080
 security:
@@ -53,6 +53,7 @@ paths:
       tags: [borrowers]
       summary: Register a borrower
       operationId: createBorrower
+      x-roles: [ADMIN, UNDERWRITER]
       parameters:
         - $ref: '#/components/parameters/CorrelationId'
       requestBody:
@@ -61,6 +62,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/BorrowerRequest' }
       responses:
+        '403': { $ref: '#/components/responses/Forbidden' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '201':
           description: Borrower created
@@ -74,12 +76,14 @@ paths:
       tags: [borrowers]
       summary: Get a borrower by business ID
       operationId: getBorrower
+      x-roles: [ADMIN, UNDERWRITER, SERVICING_AGENT]
       parameters:
         - name: borrowerExternalId
           in: path
           required: true
           schema: { type: string, pattern: '^BOR-[0-9]{3}$', example: BOR-001 }
       responses:
+        '403': { $ref: '#/components/responses/Forbidden' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '200':
           description: Borrower
@@ -95,6 +99,7 @@ paths:
         Publishes `MortgageCreated`. If `loan.underwritingDecision` is `APPROVED`, the approval workflow runs
         immediately: the mortgage becomes `ACTIVE` and `LoanApproved` is published. `DECLINED` closes it.
       operationId: createMortgage
+      x-roles: [ADMIN, UNDERWRITER]
       parameters:
         - $ref: '#/components/parameters/CorrelationId'
       requestBody:
@@ -103,6 +108,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/MortgageCreateRequest' }
       responses:
+        '403': { $ref: '#/components/responses/Forbidden' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '201':
           description: Mortgage created
@@ -124,6 +130,7 @@ paths:
       tags: [mortgages]
       summary: List a borrower's mortgages (paged)
       operationId: listMortgagesByBorrower
+      x-roles: [ADMIN, UNDERWRITER, SERVICING_AGENT, RISK_ANALYST, SUPPORT]
       parameters:
         - name: borrowerId
           in: query
@@ -157,6 +164,7 @@ paths:
       tags: [mortgages]
       summary: Get a mortgage with its loan
       operationId: getMortgage
+      x-roles: [ADMIN, UNDERWRITER, SERVICING_AGENT, RISK_ANALYST, SUPPORT]
       parameters:
         - $ref: '#/components/parameters/MortgageExternalId'
       responses:
@@ -174,8 +182,9 @@ paths:
       description: |
         `APPROVED` → loan APPROVED, mortgage `PENDING → ACTIVE`, publishes `LoanApproved`.
         `DECLINED` → loan DECLINED, mortgage `PENDING → CLOSED`, no event.
-        Role checks arrive with RBAC in M6; until then `decidedByRole` is recorded as stated.
+        Allowed roles: ADMIN, UNDERWRITER. `approvedByRole` on the LoanApproved event is the caller's role from the JWT.
       operationId: recordUnderwritingDecision
+      x-roles: [ADMIN, UNDERWRITER]
       parameters:
         - $ref: '#/components/parameters/MortgageExternalId'
         - $ref: '#/components/parameters/CorrelationId'
@@ -185,6 +194,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/UnderwritingDecisionRequest' }
       responses:
+        '403': { $ref: '#/components/responses/Forbidden' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '200':
           description: Decision recorded
@@ -207,6 +217,7 @@ paths:
       tags: [payments]
       summary: List payments ordered by due date
       operationId: listPayments
+      x-roles: [ADMIN, UNDERWRITER, SERVICING_AGENT, RISK_ANALYST, SUPPORT]
       parameters:
         - $ref: '#/components/parameters/MortgageExternalId'
       responses:
@@ -229,6 +240,7 @@ paths:
         Optional `Idempotency-Key`: the same key and body returns the original payment with
         `Idempotent-Replayed: true` and no new event; the same key with a different body returns 409 IDEMPOTENCY_KEY_REUSED.
       operationId: postPayment
+      x-roles: [ADMIN, SERVICING_AGENT]
       parameters:
         - $ref: '#/components/parameters/MortgageExternalId'
         - $ref: '#/components/parameters/CorrelationId'
@@ -242,6 +254,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/PaymentRequest' }
       responses:
+        '403': { $ref: '#/components/responses/Forbidden' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '200':
           description: Payment recorded (or replayed)
@@ -265,9 +278,11 @@ paths:
         same due date) 30+ days past due. For each it publishes `PaymentMissed` and `LoanDelinquent` and sets
         status DELINQUENT. Idempotent: already-delinquent mortgages are not re-evaluated.
       operationId: runDelinquencyEvaluation
+      x-roles: [ADMIN, SERVICING_AGENT]
       parameters:
         - $ref: '#/components/parameters/CorrelationId'
       responses:
+        '403': { $ref: '#/components/responses/Forbidden' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '200':
           description: Evaluation result
@@ -308,6 +323,11 @@ components:
       description: UUID v4. Generated if absent; echoed in the response and copied into published events.
       schema: { type: string, format: uuid, example: 7c9e6679-7425-40de-944b-e07fc1f90ae7 }
   responses:
+    Forbidden:
+      description: Authenticated but the caller's role is not allowed (code ACCESS_DENIED); see x-roles
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     Unauthorized:
       description: Missing (UNAUTHORIZED) or invalid/expired/tampered (INVALID_TOKEN) bearer token
       content:
@@ -388,7 +408,6 @@ components:
       required: [decision]
       properties:
         decision: { type: string, enum: [APPROVED, DECLINED] }
-        decidedByRole: { type: string, enum: [UNDERWRITER, ADMIN], default: UNDERWRITER }
     PaymentRequest:
       type: object
       required: [dueDate, amount, status]

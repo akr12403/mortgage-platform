@@ -4,8 +4,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from src.api.dependencies import get_db
 from src.services.s3_service import upload_document_to_s3
+from src.api.security import DOCUMENT_UPLOAD, require_roles
 
-router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
+# RBAC (M6 Task 6.2): document upload requires ADMIN, UNDERWRITER or SERVICING_AGENT.
+router = APIRouter(prefix="/api/v1/documents", tags=["documents"],
+                   dependencies=[Depends(require_roles(*DOCUMENT_UPLOAD))])
 
 @router.post("/upload")
 async def upload_document(

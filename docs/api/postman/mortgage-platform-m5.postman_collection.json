@@ -390,7 +390,7 @@
             "url": "{{mortgageBaseUrl}}/api/v1/mortgages/{{demoMtg}}/underwriting-decision",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"decision\": \"APPROVED\",\n  \"decidedByRole\": \"UNDERWRITER\"\n}"
+              "raw": "{\n  \"decision\": \"APPROVED\"\n}"
             }
           },
           "event": [

@@ -26,10 +26,13 @@ import javax.crypto.SecretKey;
 /**
  * Stateless JWT security for mortgage-service (M6 Task 6.1).
  *
- * Public: GET /actuator/health/**, /actuator/info, POST /api/v1/auth/login. Everything else requires a valid token.
+ * Public: GET /actuator/health/**, /actuator/info, POST /api/v1/auth/login.
+ * RBAC (Task 6.2): role rules are enforced here, at the URL level, so they run BEFORE request parsing/validation
+ * (a wrong role always gets 403, never a 400 that reveals validation details). Any route without an explicit
+ * rule is denied (secure default). Matrix: docs/security/security-controls.md.
  * CSRF is disabled because the API is stateless: no cookies or server sessions are used, the token travels in the
  * Authorization header (which a cross-site form cannot set), so there is no ambient credential for CSRF to abuse.
- * Role rules per endpoint (RBAC) are Task 6.2; @EnableMethodSecurity is on so @PreAuthorize can be added there.
+ * @EnableMethodSecurity stays on so finer-grained @PreAuthorize checks can be layered on later (e.g. ownership).
  */
 @Configuration
 @EnableWebSecurity
@@ -76,7 +79,19 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
                         .requestMatchers("/error").permitAll()
-                        .anyRequest().authenticated())
+                        // Origination / underwriting
+                        .requestMatchers(HttpMethod.POST, "/api/v1/borrowers").hasAnyRole(Rbac.ORIGINATION)
+                        .requestMatchers(HttpMethod.POST, "/api/v1/mortgages").hasAnyRole(Rbac.ORIGINATION)
+                        .requestMatchers(HttpMethod.POST, "/api/v1/mortgages/*/underwriting-decision").hasAnyRole(Rbac.ORIGINATION)
+                        // Servicing writes
+                        .requestMatchers(HttpMethod.POST, "/api/v1/mortgages/*/payments").hasAnyRole(Rbac.SERVICING_WRITE)
+                        .requestMatchers(HttpMethod.POST, "/api/v1/delinquency-evaluations").hasAnyRole(Rbac.SERVICING_WRITE)
+                        // Reads
+                        .requestMatchers(HttpMethod.GET, "/api/v1/borrowers/*").hasAnyRole(Rbac.BORROWER_PII_READ)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/mortgages", "/api/v1/mortgages/*", "/api/v1/mortgages/*/payments")
+                            .hasAnyRole(Rbac.ALL_ROLES)
+                        // Secure default: anything not listed above is refused
+                        .anyRequest().denyAll())
                 .addFilterBefore(new JwtAuthenticationFilter(jwtDecoder, errorWriter), UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }

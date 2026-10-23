@@ -88,7 +88,7 @@ class MortgageApiTest {
         Borrower borrower = new Borrower();
         borrower.setBorrowerExternalId("BOR-001");
         mortgage.setBorrower(borrower);
-                                when(mortgageService.saveMortgage(any(MortgageCreateRequest.class))).thenReturn(mortgage);
+                                when(mortgageService.saveMortgage(any(MortgageCreateRequest.class), eq("ADMIN"))).thenReturn(mortgage);
 
         mockMvc.perform(post("/api/v1/mortgages")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -176,7 +176,7 @@ class MortgageApiTest {
         Borrower borrower = new Borrower();
         borrower.setBorrowerExternalId("BOR-001");
         mortgage.setBorrower(borrower);
-        when(mortgageService.recordUnderwritingDecision("MTG-1010", "APPROVED", "UNDERWRITER")).thenReturn(mortgage);
+        when(mortgageService.recordUnderwritingDecision("MTG-1010", "APPROVED", "ADMIN")).thenReturn(mortgage);
 
         mockMvc.perform(post("/api/v1/mortgages/MTG-1010/underwriting-decision")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -208,7 +208,7 @@ class MortgageApiTest {
 
     @Test
     void createMortgage_Duplicate_Returns409() throws Exception {
-        when(mortgageService.saveMortgage(any(MortgageCreateRequest.class)))
+        when(mortgageService.saveMortgage(any(MortgageCreateRequest.class), eq("ADMIN")))
                 .thenThrow(BusinessRuleException.conflict("MORTGAGE_ALREADY_EXISTS", "Mortgage MTG-1001 already exists"));
 
         mockMvc.perform(post("/api/v1/mortgages")

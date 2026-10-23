@@ -40,7 +40,7 @@ public class SecurityErrorWriter implements AuthenticationEntryPoint, AccessDeni
     @Override
     public void handle(HttpServletRequest request, HttpServletResponse response, AccessDeniedException ex)
             throws IOException {
-        write(response, HttpServletResponse.SC_FORBIDDEN, "FORBIDDEN", "You do not have permission to perform this action");
+        write(response, HttpServletResponse.SC_FORBIDDEN, "ACCESS_DENIED", "You do not have permission to perform this action");
     }
 
     private void write(HttpServletResponse response, int status, String code, String message) throws IOException {

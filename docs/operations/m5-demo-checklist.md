@@ -32,7 +32,8 @@ Q=http://localhost:4566/000000000000
 docker compose exec -T localstack awslocal sqs get-queue-attributes --queue-url $Q/capstone-mortgage-servicing-dev --attribute-names All
 docker compose exec -T localstack awslocal sqs receive-message --queue-url $Q/capstone-mortgage-servicing-dlq-dev --attribute-names All --visibility-timeout 5
 docker inspect --format '{{json .State.Health}}' mortgage-service | python3 -m json.tool
-curl -s localhost:8000/api/v1/analytics/event-stats | python3 -m json.tool
+# since M6 the APIs need a token; e.g. TOKEN=<accessToken from POST localhost:8080/api/v1/auth/login>
+curl -s -H "Authorization: Bearer $TOKEN" localhost:8000/api/v1/analytics/event-stats | python3 -m json.tool
 ```
 
 ## Validation (from the milestone)
@@ -61,5 +62,5 @@ curl -s localhost:8000/api/v1/analytics/event-stats | python3 -m json.tool
 - One shared PostgreSQL instance with single-writer-per-table ownership. Separate schemas or databases are future work (ADR-002).
 - Publish-after-commit, not a transactional outbox. An SNS outage right after commit loses that event, and the loss is logged at ERROR.
 - The analytics consumer dedupes in memory, so a restart forgets seen IDs. That's acceptable because its only side effect is an idempotent snapshot refresh.
-- No authentication yet: the approval stub takes `decidedByRole` from the request until RBAC lands in M6.
+- (Resolved in M6) Authentication and RBAC now protect all APIs; the approval stub records the approver role from the JWT.
 - LocalStack has no persistence; restarting it recreates empty queues.

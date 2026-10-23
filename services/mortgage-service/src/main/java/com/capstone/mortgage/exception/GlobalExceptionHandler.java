@@ -68,7 +68,7 @@ public class GlobalExceptionHandler {
     /** Thrown by @PreAuthorize checks inside controllers/services (RBAC, Task 6.2). */
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
-        return error(HttpStatus.FORBIDDEN, "FORBIDDEN", "You do not have permission to perform this action");
+        return error(HttpStatus.FORBIDDEN, "ACCESS_DENIED", "You do not have permission to perform this action");
     }
 
     @ExceptionHandler(AuthenticationException.class)

@@ -2,11 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 from src.api.dependencies import get_db
+from src.api.security import ANALYTICS_READ, require_roles
 from src.repositories.mortgage_repository import MortgageRepository
 from datetime import datetime, timezone
 import logging
 
-router = APIRouter(prefix="/api/v1/analytics", tags=["analytics"])
+# RBAC (M6 Task 6.2): every analytics route requires ADMIN, UNDERWRITER or RISK_ANALYST.
+router = APIRouter(prefix="/api/v1/analytics", tags=["analytics"],
+                   dependencies=[Depends(require_roles(*ANALYTICS_READ))])
 
 logger = logging.getLogger(__name__)
 

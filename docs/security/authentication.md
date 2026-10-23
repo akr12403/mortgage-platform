@@ -18,7 +18,7 @@ client ──GET/POST … Authorization: Bearer <jwt>──> mortgage-service :8
 | Claim | Value |
 | --- | --- |
 | `sub` | username, e.g. `servicing@capstone.local` |
-| `roles` | e.g. `["SERVICING_AGENT"]`, mapped to Spring authorities `ROLE_SERVICING_AGENT` (used by RBAC in Task 6.2) |
+| `roles` | e.g. `["SERVICING_AGENT"]`, mapped to Spring authorities `ROLE_SERVICING_AGENT`; drives RBAC ([security-controls.md](./security-controls.md)) |
 | `iss` | `capstone-mortgage-auth` (`JWT_ISSUER`); other issuers are rejected |
 | `exp` | issue time + `JWT_TTL_SECONDS` (default 3600). **Mandatory**: tokens without `exp` are rejected; 30 s clock skew allowed |
 | `iat`, `jti` | issue time, unique token ID (for audit and future revocation) |
@@ -33,9 +33,9 @@ client ──GET/POST … Authorization: Bearer <jwt>──> mortgage-service :8
 | --- | --- | --- |
 | mortgage-service | `GET /actuator/health/**`, `GET /actuator/info`, `POST /api/v1/auth/login` | valid Bearer token required |
 | servicing-service | `GET /actuator/health/**`, `GET /actuator/info` | valid Bearer token required |
-| analytics-service | (unchanged in 6.1) | auth to be added with RBAC in Task 6.2/6.3 |
+| analytics-service | `GET /health` | valid Bearer token required (PyJWT, HS256 pinned; added in Task 6.2) |
 
-Every `/api/v1/mortgages/**` mutation requires an authenticated user, as the M6 checklist demands. Per-role rules (for example, SUPPORT cannot POST mortgages) are Task 6.2. `@EnableMethodSecurity` is already on, so `@PreAuthorize` can be added there.
+Every `/api/v1/mortgages/**` mutation requires an authenticated user, as the M6 checklist demands. Per-role rules (Task 6.2) are in [security-controls.md](./security-controls.md); routes without a rule are denied by default.
 
 ## Responses
 
@@ -44,7 +44,7 @@ Every `/api/v1/mortgages/**` mutation requires an authenticated user, as the M6 
 | No `Authorization` header on a protected route | 401 | `UNAUTHORIZED` | `WWW-Authenticate: Bearer` |
 | Malformed, tampered, wrong-key, wrong-issuer or expired token | 401 | `INVALID_TOKEN` | `WWW-Authenticate: Bearer error="invalid_token"` |
 | Wrong username, password, or disabled account | 401 | `INVALID_CREDENTIALS` | same response for all three (no user enumeration) |
-| Authenticated but not allowed (Task 6.2) | 403 | `FORBIDDEN` | |
+| Authenticated but the role is not allowed (Task 6.2) | 403 | `ACCESS_DENIED` | |
 
 All use the shared envelope `{code, message, correlationId, timestamp}`.
 
@@ -74,6 +74,7 @@ Change `JWT_SECRET` in the environment for **both** Java services and restart th
 cp .env.example .env    # then set JWT_SECRET and AUTH_SEED_PASSWORD
 docker compose up --build -d
 python3 tests/security/test_auth_smoke.py      # runs against the live stack (stdlib only)
+python3 tests/security/test_rbac_smoke.py      # real logins for all five roles vs the RBAC matrix
 bash scripts/m5-demo.sh                        # step 0b shows 401 without a token, then logs in
 ```
 

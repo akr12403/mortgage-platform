@@ -17,7 +17,9 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
 
 /**
  * Stateless JWT validation for servicing-service (resource server only). Tokens are issued by mortgage-service
- * (POST /api/v1/auth/login). Public: GET /actuator/health/**, /actuator/info. Everything else needs a valid token.
+ * (POST /api/v1/auth/login). Public: GET /actuator/health/**, /actuator/info.
+ * RBAC (Task 6.2) is enforced here at the URL level (before request validation); unlisted routes are denied.
+ * Matrix: docs/security/security-controls.md.
  * CSRF disabled: stateless bearer-token API with no cookies or sessions (see docs/security/authentication.md).
  * The SQS consumer is not an HTTP endpoint and is unaffected.
  */
@@ -50,7 +52,11 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers("/error").permitAll()
-                        .anyRequest().authenticated())
+                        .requestMatchers(HttpMethod.GET, "/api/v1/mortgages/*/servicing-history", "/api/v1/mortgages/*/delinquency")
+                            .hasAnyRole(Rbac.ALL_ROLES)
+                        .requestMatchers(HttpMethod.POST, "/api/v1/mortgages/*/servicing-events").hasAnyRole(Rbac.SERVICING_WRITE)
+                        // Secure default: anything not listed above is refused
+                        .anyRequest().denyAll())
                 .addFilterBefore(new JwtAuthenticationFilter(jwtDecoder, errorWriter), UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }

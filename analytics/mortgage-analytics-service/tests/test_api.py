@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from src.api.main import app
 from src.api.dependencies import get_db
+from tests.conftest import auth_header
 
 client = TestClient(app)
 
@@ -32,7 +33,7 @@ def test_get_portfolio_summary():
 
     app.dependency_overrides[get_db] = override_get_db
     try:
-        response = client.get("/api/v1/analytics/portfolio-summary")
+        response = client.get("/api/v1/analytics/portfolio-summary", headers=auth_header("RISK_ANALYST"))
     finally:
         app.dependency_overrides.clear()
 
@@ -65,7 +66,8 @@ def test_payment_trends_contract():
     try:
         response = client.get(
             "/api/v1/analytics/payment-trends",
-            params={"from": "2025-01-01", "to": "2026-12-31"}
+            params={"from": "2025-01-01", "to": "2026-12-31"},
+            headers=auth_header("RISK_ANALYST"),
         )
     finally:
         app.dependency_overrides.clear()
@@ -96,7 +98,7 @@ def test_http_error_uses_shared_error_envelope():
 
     app.dependency_overrides[get_db] = override_get_db
     try:
-        response = client.get("/api/v1/analytics/borrowers/BOR-999/risk-summary")
+        response = client.get("/api/v1/analytics/borrowers/BOR-999/risk-summary", headers=auth_header("ADMIN"))
     finally:
         app.dependency_overrides.clear()
 
