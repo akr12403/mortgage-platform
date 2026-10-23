@@ -3,7 +3,11 @@ package com.capstone.mortgage.controller;
 import com.capstone.mortgage.entity.Borrower;
 import com.capstone.mortgage.entity.Mortgage;
 import com.capstone.mortgage.repository.BorrowerRepository;
+import com.capstone.mortgage.security.SecurityConfig;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.Import;
+import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -22,6 +26,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(BorrowerController.class)
+@ActiveProfiles("test")
+@Import(SecurityConfig.class)
+@WithMockUser(username = "admin@capstone.local", roles = "ADMIN")
 class BorrowerApiTest {
 
     @Autowired

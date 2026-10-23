@@ -7,6 +7,8 @@ import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -43,6 +45,17 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleNotFound(jakarta.persistence.EntityNotFoundException ex) {
         String code = ex instanceof ResourceNotFoundException rnf ? rnf.getCode() : "NOT_FOUND";
         return error(HttpStatus.NOT_FOUND, code, ex.getMessage());
+    }
+
+    /** Thrown by @PreAuthorize checks (RBAC, Task 6.2). */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
+        return error(HttpStatus.FORBIDDEN, "FORBIDDEN", "You do not have permission to perform this action");
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ErrorResponse> handleAuthentication(AuthenticationException ex) {
+        return error(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Authentication is required");
     }
 
     @ExceptionHandler(RuntimeException.class)

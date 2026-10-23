@@ -5,6 +5,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -61,6 +63,17 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleConflict(DataIntegrityViolationException ex) {
         log.warn("Data integrity violation: {}", ex.getMostSpecificCause().getMessage());
         return error(HttpStatus.CONFLICT, "CONFLICT", "Request conflicts with an existing resource (duplicate business ID?)");
+    }
+
+    /** Thrown by @PreAuthorize checks inside controllers/services (RBAC, Task 6.2). */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
+        return error(HttpStatus.FORBIDDEN, "FORBIDDEN", "You do not have permission to perform this action");
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ErrorResponse> handleAuthentication(AuthenticationException ex) {
+        return error(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Authentication is required");
     }
 
     @ExceptionHandler(RuntimeException.class)

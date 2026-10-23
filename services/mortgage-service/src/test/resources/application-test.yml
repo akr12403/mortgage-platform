@@ -8,3 +8,11 @@ spring:
     hibernate:
       ddl-auto: create-drop
     show-sql: true
+
+app:
+  security:
+    jwt:
+      # Test-only key (never used outside unit tests)
+      secret: test-only-jwt-secret-0123456789-abcdefghijklmnop
+      issuer: capstone-mortgage-auth
+      ttl-seconds: 900

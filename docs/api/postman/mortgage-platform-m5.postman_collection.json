@@ -1,8 +1,8 @@
 {
   "info": {
-    "name": "Capstone Mortgage Platform - M5",
+    "name": "Capstone Mortgage Platform - M5/M6",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "Contract checks for mortgage-service (8080), servicing-service (8081) and analytics (8000). Run top to bottom; servicing/analytics reads are eventually consistent (wait ~5 s after writes). Set demoMtg/demoLoan to unused IDs before each run."
+    "description": "Contract checks for mortgage-service (8080), servicing-service (8081) and analytics (8000). Run top to bottom; servicing/analytics reads are eventually consistent (wait ~5 s after writes). Set demoMtg/demoLoan to unused IDs before each run. M6: run 'Auth > Login' first (set seedPassword to your local AUTH_SEED_PASSWORD; never commit it). The token is stored in accessToken and sent as Bearer auth on every request."
   },
   "variable": [
     {
@@ -24,6 +24,14 @@
     {
       "key": "demoLoan",
       "value": "LOAN-7001"
+    },
+    {
+      "key": "seedPassword",
+      "value": ""
+    },
+    {
+      "key": "accessToken",
+      "value": ""
     }
   ],
   "item": [
@@ -40,7 +48,10 @@
                 "value": "{{$guid}}"
               }
             ],
-            "url": "{{mortgageBaseUrl}}/actuator/health"
+            "url": "{{mortgageBaseUrl}}/actuator/health",
+            "auth": {
+              "type": "noauth"
+            }
           },
           "event": [
             {
@@ -64,7 +75,10 @@
                 "value": "{{$guid}}"
               }
             ],
-            "url": "{{servicingBaseUrl}}/actuator/health"
+            "url": "{{servicingBaseUrl}}/actuator/health",
+            "auth": {
+              "type": "noauth"
+            }
           },
           "event": [
             {
@@ -88,7 +102,10 @@
                 "value": "{{$guid}}"
               }
             ],
-            "url": "{{analyticsBaseUrl}}/health"
+            "url": "{{analyticsBaseUrl}}/health",
+            "auth": {
+              "type": "noauth"
+            }
           },
           "event": [
             {
@@ -97,6 +114,127 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Auth (M6)",
+      "item": [
+        {
+          "name": "Login (admin) -> stores accessToken",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{mortgageBaseUrl}}/api/v1/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin@capstone.local\",\n  \"password\": \"{{seedPassword}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.test('token issued', () => pm.expect(b.accessToken).to.be.a('string'));",
+                  "pm.collectionVariables.set('accessToken', b.accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login wrong password -> 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{mortgageBaseUrl}}/api/v1/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin@capstone.local\",\n  \"password\": \"definitely-wrong\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "pm.test('INVALID_CREDENTIALS', () => pm.expect(pm.response.json().code).to.eql('INVALID_CREDENTIALS'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "No token -> 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{mortgageBaseUrl}}/api/v1/mortgages/MTG-1001",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tampered token -> 401 (servicing)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer abc.def.ghi"
+              }
+            ],
+            "url": "{{servicingBaseUrl}}/api/v1/mortgages/MTG-1001/servicing-history",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "pm.test('INVALID_TOKEN', () => pm.expect(pm.response.json().code).to.eql('INVALID_TOKEN'));"
                 ]
               }
             }
@@ -738,5 +876,15 @@
         }
       ]
     }
-  ]
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  }
 }

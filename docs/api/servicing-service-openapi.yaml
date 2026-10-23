@@ -6,8 +6,12 @@ info:
     Servicing history and delinquency snapshot, projected from lifecycle events consumed from
     SQS capstone-mortgage-servicing-dev (see docs/architecture/event-catalog.md). Reads are eventually
     consistent with mortgage-service (typically a few seconds). Breaking-change policy: ADR-002.
+    M6: every operation except /actuator/health requires `Authorization: Bearer <jwt>` issued by mortgage-service
+    POST /api/v1/auth/login. Missing token → 401 UNAUTHORIZED; invalid/expired/tampered → 401 INVALID_TOKEN.
 servers:
   - url: http://localhost:8081
+security:
+  - bearerAuth: []
 paths:
   /api/v1/mortgages/{mortgageExternalId}/servicing-history:
     get:
@@ -17,6 +21,7 @@ paths:
         - $ref: '#/components/parameters/MortgageExternalId'
         - $ref: '#/components/parameters/CorrelationId'
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '200':
           description: History, oldest first
           content:
@@ -37,6 +42,7 @@ paths:
         - $ref: '#/components/parameters/MortgageExternalId'
         - $ref: '#/components/parameters/CorrelationId'
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '200':
           description: Snapshot; delinquency fields are null when the mortgage has never been delinquent
           content:
@@ -62,6 +68,7 @@ paths:
                 eventType: { type: string, pattern: '^[A-Z][A-Z0-9_]{2,49}$', example: ESCROW_ANALYSIS }
                 description: { type: string, maxLength: 2000 }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '201':
           description: Created
           content:
@@ -73,10 +80,17 @@ paths:
     get:
       summary: Liveness/readiness (used by the container HEALTHCHECK)
       operationId: health
+      security: []
       responses:
         '200':
           description: UP
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token issued by mortgage-service POST /api/v1/auth/login (same JWT_SECRET and issuer).
   parameters:
     MortgageExternalId:
       name: mortgageExternalId
@@ -89,6 +103,11 @@ components:
       required: false
       schema: { type: string, format: uuid }
   responses:
+    Unauthorized:
+      description: Missing (UNAUTHORIZED) or invalid/expired/tampered (INVALID_TOKEN) bearer token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     Error:
       description: Shared error envelope (guides/standards.md); unknown mortgage returns code MORTGAGE_NOT_FOUND
       content:

@@ -4,6 +4,9 @@ server:
 spring:
   application:
     name: mortgage-service
+  autoconfigure:
+    # Users come from app_user (JWT login); don't create Spring's default in-memory user with a generated password.
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:mortgage_intel}
     username: ${POSTGRES_USER:mortgage_app}
@@ -42,3 +45,11 @@ app:
   delinquency:
     # Daily batch for the 30-day delinquency rule (UTC). Also triggerable via POST /api/v1/delinquency-evaluations.
     scan-cron: ${DELINQUENCY_SCAN_CRON:0 0 2 * * *}
+  security:
+    jwt:
+      # REQUIRED: >= 32 bytes, from the environment only (openssl rand -base64 48). Startup fails if missing/short.
+      secret: ${JWT_SECRET:}
+      issuer: ${JWT_ISSUER:capstone-mortgage-auth}
+      ttl-seconds: ${JWT_TTL_SECONDS:3600}
+    # Local/dev only: creates the five standards.md seed users with this password (BCrypt-hashed) if missing.
+    seed-users-password: ${AUTH_SEED_PASSWORD:}

@@ -9,6 +9,11 @@ x-db-env: &db-env
   POSTGRES_USER: ${POSTGRES_USER:-mortgage_app}
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
 
+# M6 auth: REQUIRED in your local .env (never committed). Compose refuses to start without them.
+x-jwt-env: &jwt-env
+  JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (>= 32 bytes, e.g. openssl rand -base64 48) - see .env.example}
+  JWT_ISSUER: ${JWT_ISSUER:-capstone-mortgage-auth}
+
 # LocalStack accepts any credentials; real AWS would use a profile/role instead (never commit keys).
 x-aws-env: &aws-env
   AWS_REGION: ${AWS_REGION:-us-east-1}
@@ -104,8 +109,10 @@ services:
     ports:
       - "8080:8080"
     environment:
-      <<: [*db-env, *aws-env]
+      <<: [*db-env, *aws-env, *jwt-env]
       SPRING_PROFILES_ACTIVE: dev
+      JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-3600}
+      AUTH_SEED_PASSWORD: ${AUTH_SEED_PASSWORD:?Set AUTH_SEED_PASSWORD in .env (>= 12 chars, local dev only) - see .env.example}
       SNS_TOPIC_MORTGAGE_EVENTS: ${SNS_TOPIC_MORTGAGE_EVENTS:-arn:aws:sns:us-east-1:000000000000:capstone-mortgage-lifecycle-dev}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
@@ -124,7 +131,7 @@ services:
     ports:
       - "8081:8081"
     environment:
-      <<: [*db-env, *aws-env]
+      <<: [*db-env, *aws-env, *jwt-env]
       SPRING_PROFILES_ACTIVE: dev
       SQS_QUEUE_SERVICING_EVENTS: ${SQS_QUEUE_SERVICING_EVENTS_DOCKER:-http://localstack:4566/000000000000/capstone-mortgage-servicing-dev}
       SQS_MAX_RECEIVE_COUNT: "3"

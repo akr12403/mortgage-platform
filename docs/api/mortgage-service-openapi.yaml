@@ -6,14 +6,48 @@ info:
     Origination, underwriting (approval workflow stub), payments and delinquency evaluation.
     Publishes lifecycle events (see docs/architecture/event-catalog.md) after each successful commit.
     Breaking-change policy: ADR-002. All errors use the shared ErrorEnvelope.
+    M6: every operation requires `Authorization: Bearer <jwt>` from POST /api/v1/auth/login, except login and
+    /actuator/health. Missing token → 401 UNAUTHORIZED; invalid/expired/tampered token → 401 INVALID_TOKEN.
 servers:
   - url: http://localhost:8080
+security:
+  - bearerAuth: []
 tags:
+  - name: auth
   - name: borrowers
   - name: mortgages
   - name: payments
   - name: delinquency
 paths:
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Exchange username/password for a JWT access token
+      description: |
+        Public. Returns an HS256 JWT with claims sub, roles, iss (capstone-mortgage-auth), exp, iat, jti.
+        Unknown user, wrong password and disabled account all return the same 401 INVALID_CREDENTIALS.
+        There is no refresh token: clients log in again when they receive 401 INVALID_TOKEN after expiry.
+      operationId: login
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Token issued (Cache-Control no-store)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401':
+          description: INVALID_CREDENTIALS
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
   /api/v1/borrowers:
     post:
       tags: [borrowers]
@@ -27,6 +61,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/BorrowerRequest' }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '201':
           description: Borrower created
           content:
@@ -45,6 +80,7 @@ paths:
           required: true
           schema: { type: string, pattern: '^BOR-[0-9]{3}$', example: BOR-001 }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '200':
           description: Borrower
           content:
@@ -67,6 +103,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/MortgageCreateRequest' }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '201':
           description: Mortgage created
           content:
@@ -99,6 +136,7 @@ paths:
           in: query
           schema: { type: integer, default: 10, minimum: 1 }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '200':
           description: Spring Data page of mortgages
           content:
@@ -122,6 +160,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/MortgageExternalId'
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '200':
           description: Mortgage
           content:
@@ -146,6 +185,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/UnderwritingDecisionRequest' }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '200':
           description: Decision recorded
           content:
@@ -170,6 +210,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/MortgageExternalId'
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '200':
           description: Payments
           content:
@@ -201,6 +242,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/PaymentRequest' }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '200':
           description: Payment recorded (or replayed)
           headers:
@@ -226,6 +268,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/CorrelationId'
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '200':
           description: Evaluation result
           content:
@@ -235,6 +278,7 @@ paths:
     get:
       summary: Liveness/readiness (used by the container HEALTHCHECK)
       operationId: health
+      security: []
       responses:
         '200':
           description: UP
@@ -245,6 +289,12 @@ paths:
                 properties:
                   status: { type: string, example: UP }
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token from POST /api/v1/auth/login. Default lifetime 3600 s (JWT_TTL_SECONDS).
   parameters:
     MortgageExternalId:
       name: mortgageExternalId
@@ -258,12 +308,33 @@ components:
       description: UUID v4. Generated if absent; echoed in the response and copied into published events.
       schema: { type: string, format: uuid, example: 7c9e6679-7425-40de-944b-e07fc1f90ae7 }
   responses:
+    Unauthorized:
+      description: Missing (UNAUTHORIZED) or invalid/expired/tampered (INVALID_TOKEN) bearer token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     Error:
       description: Shared error envelope (guides/standards.md)
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
   schemas:
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, maxLength: 255, example: servicing@capstone.local }
+        password: { type: string, format: password, maxLength: 128 }
+    LoginResponse:
+      type: object
+      properties:
+        accessToken: { type: string, description: 'JWT (header.payload.signature)' }
+        tokenType: { type: string, example: Bearer }
+        expiresInSeconds: { type: integer, example: 3600 }
+        roles:
+          type: array
+          items: { type: string, enum: [ADMIN, UNDERWRITER, SERVICING_AGENT, RISK_ANALYST, SUPPORT] }
+          example: [SERVICING_AGENT]
     BorrowerRequest:
       type: object
       required: [borrowerExternalId, firstName, lastName, email]

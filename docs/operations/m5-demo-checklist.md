@@ -6,6 +6,7 @@ Automated run: `bash scripts/m5-demo.sh` (about 3 minutes). Each step below says
 
 ```bash
 cd ~/projects/mortgage-platform
+cp -n .env.example .env   # since M6: set JWT_SECRET and AUTH_SEED_PASSWORD in .env (the demo script logs in with it)
 docker compose up --build -d
 docker compose ps        # postgres, localstack, 3 services "healthy"; db-migrate & messaging-init "Exited (0)"
 ```

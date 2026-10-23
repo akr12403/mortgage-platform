@@ -3,6 +3,8 @@
 #   bash scripts/m5-demo.sh            # full run (~3 minutes, mostly waiting for the DLQ redrive)
 #   SKIP_DLQ=1 bash scripts/m5-demo.sh # skip the poison-message step
 # Prereq: docker compose up --build -d   (all containers healthy)
+# M6: APIs require a JWT. The script logs in as admin@capstone.local using AUTH_SEED_PASSWORD from the
+#     environment or from your local .env file (never hard-coded here).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -18,6 +20,16 @@ MTG="MTG-$N"
 LOAN="LOAN-$N"
 CID="$(python3 -c 'import uuid; print(uuid.uuid4())')"
 
+env_value() {  # read KEY from .env without sourcing it (values may contain spaces)
+  [[ -f .env ]] && grep -E "^$1=" .env | tail -1 | cut -d= -f2- || true
+}
+SEED_PASSWORD="${AUTH_SEED_PASSWORD:-$(env_value AUTH_SEED_PASSWORD)}"
+if [[ -z "$SEED_PASSWORD" ]]; then
+  echo "AUTH_SEED_PASSWORD is not set (export it or put it in .env)." >&2
+  exit 1
+fi
+TOKEN=""
+
 days_ago() {  # portable (macOS BSD date / GNU date)
   date -u -v-"$1"d +%F 2>/dev/null || date -u -d "$1 days ago" +%F
 }
@@ -28,9 +40,10 @@ call() {  # call METHOD URL [BODY] [extra curl args...]
   local method=$1 url=$2 body=${3:-}
   shift 3 || shift $#
   if [[ -n "$body" ]]; then
-    curl -sS -X "$method" "$url" -H 'Content-Type: application/json' -H "X-Correlation-Id: $CID" "$@" -d "$body"
+    curl -sS -X "$method" "$url" -H 'Content-Type: application/json' -H "X-Correlation-Id: $CID" \
+      -H "Authorization: Bearer $TOKEN" "$@" -d "$body"
   else
-    curl -sS -X "$method" "$url" -H "X-Correlation-Id: $CID" "$@"
+    curl -sS -X "$method" "$url" -H "X-Correlation-Id: $CID" -H "Authorization: Bearer $TOKEN" "$@"
   fi
 }
 awsl() { docker compose exec -T localstack awslocal "$@"; }
@@ -41,6 +54,23 @@ for url in $MS/actuator/health $SS/actuator/health $AS/health; do
   printf '%-40s %s\n' "$url" "$(curl -sS "$url")"
 done
 echo "Demo mortgage: $MTG   correlationId: $CID"
+
+step "0b. Authentication (M6 Task 6.1): no token -> 401, login -> JWT"
+printf 'GET without token -> '; curl -sS -o /dev/null -w '%{http_code}\n' $MS/api/v1/mortgages/MTG-1001
+printf 'GET with tampered token -> '; curl -sS -o /dev/null -w '%{http_code}\n' -H 'Authorization: Bearer abc.def.ghi' $SS/api/v1/mortgages/MTG-1001/servicing-history
+LOGIN_BODY=$(SEED_PASSWORD="$SEED_PASSWORD" python3 -c 'import json,os; print(json.dumps({"username":"admin@capstone.local","password":os.environ["SEED_PASSWORD"]}))')
+TOKEN=$(curl -sS -X POST $MS/api/v1/auth/login -H 'Content-Type: application/json' -d "$LOGIN_BODY" \
+  | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("accessToken",""))
+except Exception: print("")' || true)
+if [[ -z "$TOKEN" ]]; then echo "Login failed - check AUTH_SEED_PASSWORD matches what mortgage-service seeded." >&2; exit 1; fi
+echo "Logged in as admin@capstone.local; token claims:"
+python3 - "$TOKEN" <<'PY'
+import base64, json, sys
+payload = sys.argv[1].split(".")[1]
+claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+print("  sub=%(sub)s roles=%(roles)s iss=%(iss)s exp=%(exp)s" % claims)
+PY
 
 step "1. Create mortgage -> MortgageCreated (status PENDING)"
 call POST $MS/api/v1/mortgages "{

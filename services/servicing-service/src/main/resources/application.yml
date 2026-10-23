@@ -4,6 +4,9 @@ server:
 spring:
   application:
     name: servicing-service
+  autoconfigure:
+    # Token validation only; no local users, so skip Spring's default in-memory user.
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:mortgage_intel}
     username: ${POSTGRES_USER:mortgage_app}
@@ -46,3 +49,8 @@ app:
     # Must match the queue RedrivePolicy maxReceiveCount (used for the ERROR "moving to DLQ" log).
     max-receive-count: ${SQS_MAX_RECEIVE_COUNT:3}
     poll-delay-ms: ${SQS_POLL_DELAY_MS:2000}
+  security:
+    jwt:
+      # REQUIRED: same JWT_SECRET as mortgage-service (>= 32 bytes, env only). Startup fails if missing/short.
+      secret: ${JWT_SECRET:}
+      issuer: ${JWT_ISSUER:capstone-mortgage-auth}

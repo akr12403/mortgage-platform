@@ -120,11 +120,11 @@ All M5 Definition of Done items and their evidence: [docs/operations/m5-demo-che
 ### Run the stack
 
 ```bash
-cp .env.example .env            # optional; defaults work without it
+cp .env.example .env            # REQUIRED since M6: set JWT_SECRET (openssl rand -base64 48) and AUTH_SEED_PASSWORD
 docker compose up --build -d
 docker compose ps               # postgres, localstack, mortgage-service, servicing-service, analytics-service -> healthy
 curl localhost:8080/actuator/health; curl localhost:8081/actuator/health; curl localhost:8000/health
-bash scripts/m5-demo.sh         # end-to-end demo incl. DLQ
+bash scripts/m5-demo.sh         # end-to-end demo incl. DLQ (logs in with AUTH_SEED_PASSWORD from .env)
 ```
 
 Do **not** use `docker compose down -v` unless you intend to wipe the database volume (it re-seeds on next start).
@@ -141,6 +141,9 @@ done
 # Python analytics (dedicated test stage; runtime image carries no test tooling)
 docker build -f docker/Dockerfile.analytics-service --target test -t capstone/analytics-tests .
 docker run --rm capstone/analytics-tests
+
+# M6 auth smoke test against the running stack (stdlib only)
+python3 tests/security/test_auth_smoke.py
 
 # Repository contract checks (schemas <-> examples <-> catalog <-> Java producer records)
 docker run --rm -v "$PWD":/w -w /w python:3.14.7-slim sh -c "pip install -q pytest jsonschema && python -m pytest -q tests/contract"

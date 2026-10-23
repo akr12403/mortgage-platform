@@ -5,7 +5,10 @@ import com.capstone.servicing.entity.ServicingHistory;
 import com.capstone.servicing.exception.ResourceNotFoundException;
 import com.capstone.servicing.service.ServicingService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.capstone.servicing.security.SecurityConfig;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.Import;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -26,6 +29,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(ServicingController.class)
 @ActiveProfiles("test")
+@Import(SecurityConfig.class)
+@WithMockUser(username = "servicing@capstone.local", roles = "SERVICING_AGENT")
 class ServicingApiTest {
 
     @Autowired
