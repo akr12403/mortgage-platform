@@ -8,6 +8,7 @@ import pytest
 TEST_JWT_SECRET = "test-only-jwt-secret-0123456789-abcdefghijklmnop"
 os.environ.setdefault("JWT_SECRET", TEST_JWT_SECRET)
 os.environ.setdefault("JWT_ISSUER", "capstone-mortgage-auth")
+os.environ.setdefault("POSTGRES_PASSWORD", "test-only-db-password")  # the DB itself is faked in tests
 
 
 def make_token(roles=("ADMIN",), sub="admin@capstone.local", secret=TEST_JWT_SECRET,

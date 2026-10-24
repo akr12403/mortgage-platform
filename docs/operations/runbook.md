@@ -81,7 +81,7 @@ If you change `.env` without running the `ALTER ROLE`, the services fail their h
 
 **AWS:** use Secrets Manager **managed rotation** with the *alternating users* strategy. Two DB users (`app_a`, `app_b`) take turns: rotation changes the password of the inactive user and then makes it current, so connections using the active user keep working. Services read the secret at start, so a new ECS deployment, or a scheduled daily task recycle, picks up the new value. The HikariCP (`maxLifetime`) and SQLAlchemy (`pool_recycle`) connection pools drop old connections well inside the rotation window.
 
-Before relying on that in AWS, fix **DP-GAP-2**: the services still fall back to a default password when none is set. Remove the default outside the local profile, so a missing secret stops the service instead of falling back.
+Since Task 6.6 (DP-GAP-2) there is no default password anywhere: a missing secret stops the service and compose instead of silently using a guessable value.
 
 ### Seed user password (`AUTH_SEED_PASSWORD`, local/dev only)
 

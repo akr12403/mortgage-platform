@@ -78,6 +78,19 @@ class RbacSmokeTest(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertEqual(response["code"], "ACCESS_DENIED")
 
+    def test_risk_analyst_sees_no_borrower_names_dp_gap_1(self):
+        """M6 Task 6.6, DP-GAP-1: risk summary keeps the aggregates but drops names for RISK_ANALYST."""
+        url = f"{ANALYTICS}/api/v1/analytics/borrowers/BOR-001/risk-summary"
+        status, _, admin_view = call("GET", url, token=self.tokens["ADMIN"])
+        self.assertEqual(status, 200, admin_view)
+        self.assertIn("firstName", admin_view)
+        status, _, risk_view = call("GET", url, token=self.tokens["RISK_ANALYST"])
+        self.assertEqual(status, 200, risk_view)
+        self.assertNotIn("firstName", risk_view)
+        self.assertNotIn("lastName", risk_view)
+        self.assertEqual(risk_view["borrowerExternalId"], "BOR-001")
+        self.assertEqual(risk_view["totalOutstandingBalance"], admin_view["totalOutstandingBalance"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

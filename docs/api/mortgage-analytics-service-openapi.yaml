@@ -92,8 +92,8 @@ paths:
                 type: object
                 properties:
                   borrowerExternalId: { type: string }
-                  firstName: { type: string }
-                  lastName: { type: string }
+                  firstName: { type: string, description: 'Only for roles in BORROWER_PII_READ (ADMIN, UNDERWRITER); omitted for RISK_ANALYST (DP-GAP-1)' }
+                  lastName: { type: string, description: 'Only for roles in BORROWER_PII_READ (ADMIN, UNDERWRITER); omitted for RISK_ANALYST (DP-GAP-1)' }
                   totalMortgages: { type: integer, description: ACTIVE + DELINQUENT }
                   totalOutstandingBalance: { type: number }
                   delinquentCount: { type: integer }

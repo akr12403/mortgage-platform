@@ -13,7 +13,7 @@ The Enterprise Mortgage Platform is an event-driven, microservices-based system 
 | **M3** | Python Analytics | 3 | `docs/milestones/m03.md` | **Completed** |
 | **M4** | Java / Spring Backend | 4–5 | `docs/milestones/m04.md` | **Completed** |
 | **M5** | Microservices & Events | 6 | `docs/milestones/m05.md` | **Completed** |
-| **M6** | Security Engineering | 7–8 | `docs/milestones/m06.md` | Planned |
+| **M6** | Security Engineering | 7–8 | `docs/milestones/m06.md` | In progress (Tasks 6.1–6.6 done; 6.7 CI gates next) |
 | **M7** | AI / RAG Assistant | 9 | `docs/milestones/m07.md` | Planned |
 | **M8** | AWS & Data Platform | 10 | `docs/milestones/m08.md` | Planned |
 | **M9** | CI/CD, Terraform, Observability | 11 | `docs/milestones/m09.md` | Planned |

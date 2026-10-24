@@ -142,7 +142,7 @@ Over the limit the response is **429 `RATE_LIMITED`** in the shared envelope wit
 
 **Known limit:** the counters are fixed-window and in-memory per container. That is correct for this single-instance stack, but with N replicas the effective limit is N× and counters reset on restart. M9 moves throttling to a shared store (Redis/ElastiCache) or the API gateway / AWS WAF rate-based rules, and the proxy's client-IP header is trusted only once there is a known proxy in front.
 
-### Task 6.3 tests
+### Security tests (Tasks 6.3–6.6)
 
 | Test | What it proves |
 | --- | --- |
@@ -153,6 +153,7 @@ Over the limit the response is **429 `RATE_LIMITED`** in the shared envelope wit
 | `analytics` `tests/test_owasp.py`, `tests/test_hardening_units.py` | headers, 400 envelope, date and ID validation, upload size/type/filename/ordering, upload rate limit, no storage-detail leaks |
 | `tests/security/test_static_sql.py` | no string-built SQL in any service |
 | `tests/security/test_owasp_smoke.py` | the same controls against the live stack |
+| `analytics` `tests/test_data_protection.py`, `SecretConfigurationTest` ×2 (Task 6.6) | DP-GAP-1 (no names for RISK_ANALYST) and DP-GAP-2 (no default secrets) stay fixed |
 | `clients/mortgage-api-consumer` `npm test` (Task 6.4) | the client side of the contract: Bearer on every call, 401 → one re-login + one retry, 403 never retried, 429 honours `Retry-After`, token never in logs or errors, HTTPS required off localhost |
 
 ## Data classification (Task 6.5)
@@ -209,13 +210,13 @@ A record takes the **highest** level of any field it contains. A combination can
 | OpenAPI specs, event catalog, these docs | Internal | |
 | AI assistant prompts (M7) | must stay Internal | no Confidential or Restricted fields in prompts, per trust boundary TB-4 |
 
-### Known gaps found during classification (tracked for Task 6.6)
+### Known gaps found during classification (Task 6.6 status)
 
-| ID | Gap | Why it matters | Proposed fix |
+| ID | Gap | Why it matters | Status |
 | --- | --- | --- | --- |
-| DP-GAP-1 | `GET /api/v1/analytics/borrowers/{id}/risk-summary` returns `firstName`/`lastName`, and `RISK_ANALYST` may call it | Contradicts the least-privilege rule above (RISK_ANALYST works on aggregates and has no PII access) | Return the business ID only, or mask names for roles outside `BORROWER_PII_READ` |
-| DP-GAP-2 | The DB password has code defaults (`postgres` in the Java `application.yml`, `change-me` in analytics) | A misconfigured deployment would start with a guessable credential instead of failing | Require `POSTGRES_PASSWORD` with no default outside the `local` profile, the way `JWT_SECRET` already works |
-| DP-GAP-3 | API responses include internal UUIDs (`id`) next to business IDs | Not sensitive in itself, but it leaks internal structure (Internal-level data) | Drop `id` from response DTOs in a versioned API change |
+| DP-GAP-1 | `GET /api/v1/analytics/borrowers/{id}/risk-summary` returned `firstName`/`lastName` to `RISK_ANALYST` | Contradicted the least-privilege rule above | **Fixed (VULN-M6-008):** names only for `BORROWER_PII_READ` roles |
+| DP-GAP-2 | The DB password had code defaults (`postgres` in the Java `application.yml`, `change-me` in analytics) | A misconfigured deployment would start with a guessable credential | **Fixed (VULN-M6-009):** no defaults anywhere; services and compose fail fast |
+| DP-GAP-3 | API responses include internal UUIDs (`id`) next to business IDs | Not sensitive in itself, but it leaks internal structure | **Open (VULN-M6-015):** [backlog B-07](./remediation-backlog.md) |
 
 ## Encryption (Task 6.5)
 

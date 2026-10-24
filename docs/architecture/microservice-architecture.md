@@ -35,4 +35,4 @@ M5 turns "multiple services in a repo" into a documented, event-driven microserv
 
 ## Known limits
 
-See the end of [m5-demo-checklist.md](../operations/m5-demo-checklist.md#known-limits-stated-not-hidden): shared database for reads, publish-after-commit instead of an outbox, in-memory dedupe in analytics, no auth until M6, and LocalStack without persistence.
+See the end of [m5-demo-checklist.md](../operations/m5-demo-checklist.md#known-limits-stated-not-hidden): shared database for reads, publish-after-commit instead of an outbox, in-memory dedupe in analytics, and LocalStack without persistence. The M5 limit "no auth until M6" is resolved: JWT authentication, RBAC and OWASP hardening are documented in [docs/security/](../security/security-controls.md).

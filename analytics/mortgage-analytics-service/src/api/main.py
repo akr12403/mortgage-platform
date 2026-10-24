@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from src.api.routes import analytics, documents
 from src.messaging.bootstrap import start_analytics_consumer
 from src.api.security import validate_settings
+from src.api.dependencies import validate_db_settings
 from src.api.hardening import security_headers_for
 from src.api.routes.documents import MAX_UPLOAD_BYTES
 
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     validate_settings()  # fail fast if JWT_SECRET is missing/short
+    validate_db_settings()  # fail fast if POSTGRES_PASSWORD is missing (DP-GAP-2)
     consumer = start_analytics_consumer(app)
     yield
     if consumer is not None:

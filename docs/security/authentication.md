@@ -2,7 +2,7 @@
 
 ## Approach
 
-**Login against seed users with a self-issued JWT** (the first option in Task 6.1): `mortgage-service` hosts `POST /api/v1/auth/login`, checks the password against a BCrypt hash in `app_user`, and returns a signed **HS256 JWT**. Both Java services validate that token on every protected request with the same shared secret and issuer.
+**Login against seed users with a self-issued JWT** (the first option in Task 6.1): `mortgage-service` hosts `POST /api/v1/auth/login`, checks the password against a BCrypt hash in `app_user`, and returns a signed **HS256 JWT**. servicing-service and mortgage-analytics-service validate that token on every protected request with the same shared secret and issuer (analytics since Task 6.2).
 
 We chose this over an external OAuth2/OIDC provider (Keycloak, Cognito, Ping) because the capstone needs a working login with no extra infrastructure. The rest of the design does not depend on that choice: tokens carry standard claims and are validated with Spring Security's Nimbus decoder. Moving to a real IdP later means swapping the issuer, plus moving from HS256 to RS256 validated against the provider's JWKS. Controllers stay the same. Full Ping/SailPoint integration is out of scope for M6.
 

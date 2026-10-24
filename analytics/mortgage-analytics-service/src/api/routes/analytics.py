@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 from src.api.dependencies import get_db
-from src.api.security import ANALYTICS_READ, require_roles
+from src.api.security import ANALYTICS_READ, BORROWER_PII_READ, Principal, current_principal, require_roles
 from src.repositories.mortgage_repository import MortgageRepository
 from datetime import date, datetime, timezone
 import logging
@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 # Task 6.3: bound the payment-trends scan (OWASP API4).
 MAX_TREND_RANGE_DAYS = 3660
+
+# Columns of the risk summary that identify the borrower (see docs/security/security-controls.md classification).
+PII_COLUMNS = frozenset({"first_name", "last_name"})
 
 
 def _camel_case(name: str) -> str:
@@ -56,6 +59,7 @@ def get_delinquencies(request: Request, db: Session = Depends(get_db)):
 @router.get("/borrowers/{borrower_external_id}/risk-summary")
 def get_borrower_risk(request: Request,
                       borrower_external_id: str = Path(..., pattern=r"^BOR-\d{3}$"),
+                      principal: Principal = Depends(current_principal),
                       db: Session = Depends(get_db)):
     correlation_id = getattr(request.state, "correlation_id", None)
     repo = MortgageRepository(db)
@@ -70,6 +74,10 @@ def get_borrower_risk(request: Request,
                 "correlationId": correlation_id
             }
         )
+    # DP-GAP-1 (M6 Task 6.6): names are Confidential PII. Only BORROWER_PII_READ roles get them;
+    # RISK_ANALYST works with the business ID and the financial aggregates.
+    if not set(principal.roles).intersection(BORROWER_PII_READ):
+        borrower_res = {k: v for k, v in borrower_res.items() if k not in PII_COLUMNS}
     return {_camel_case(key): value for key, value in borrower_res.items()}
 
 @router.get("/payment-trends")

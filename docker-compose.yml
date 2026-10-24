@@ -7,7 +7,7 @@ x-db-env: &db-env
   POSTGRES_PORT: "5432"
   POSTGRES_DB: ${POSTGRES_DB:-mortgage_intel}
   POSTGRES_USER: ${POSTGRES_USER:-mortgage_app}
-  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env - see .env.example}
 
 # M6 auth: REQUIRED in your local .env (never committed). Compose refuses to start without them.
 x-jwt-env: &jwt-env
@@ -35,7 +35,7 @@ services:
     container_name: capstone-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-mortgage_app}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env - see .env.example}
       POSTGRES_DB: ${POSTGRES_DB:-mortgage_intel}
     ports:
       - "5432:5432"
@@ -57,7 +57,7 @@ services:
     environment:
       PGHOST: postgres
       PGUSER: ${POSTGRES_USER:-mortgage_app}
-      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env - see .env.example}
       PGDATABASE: ${POSTGRES_DB:-mortgage_intel}
     volumes:
       - ./database/migrations:/migrations:ro
