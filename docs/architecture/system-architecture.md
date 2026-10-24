@@ -21,8 +21,8 @@ graph TB
     subgraph Services ["Core Services Layer"]
         MS[Mortgage Service\n:8080]
         SS[Servicing Service\n:8081]
-        AS[Mortgage Analytics Service\n:8082]
-        AI[Mortgage Knowledge Assistant\n:8083]
+        AS[Mortgage Analytics Service\n:8000]
+        AI[Mortgage Knowledge Assistant\n:8001]
     end
 
     %% Messaging / Integration
