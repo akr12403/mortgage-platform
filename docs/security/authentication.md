@@ -79,3 +79,13 @@ bash scripts/m5-demo.sh                        # step 0b shows 401 without a tok
 ```
 
 Unit and integration tests: `JwtAuthenticationTest`, `AuthApiTest`, `AuthServiceTest`, `JwtKeysTest` (mortgage-service) and `JwtValidationTest` (servicing-service).
+
+## Consuming the API from a client (Task 6.4)
+
+[`clients/mortgage-api-consumer/`](../../clients/mortgage-api-consumer/README.md) is the reference TypeScript client.
+
+1. `POST /api/v1/auth/login` → keep `accessToken` **in memory**, along with `expiresInSeconds`. Never write it to disk, `localStorage` or logs.
+2. Send `Authorization: Bearer <token>` (plus `X-Correlation-Id`) to any service.
+3. There are no refresh tokens. Log in again shortly before expiry. On a **401**, discard the token, log in **once** and retry **once**; if it fails again, surface the error.
+4. Never retry a **403**, which is an authorization decision. Retry a **429** only after `Retry-After`, and never auto-retry a failed login.
+5. Base URLs come from the environment, and anything other than localhost must use `https://`.

@@ -150,6 +150,10 @@ python3 tests/security/test_owasp_smoke.py
 # M6 static check: no string-built SQL anywhere (no stack needed)
 python3 tests/security/test_static_sql.py
 
+# M6 TypeScript secure API consumer (Node 22+; see clients/mortgage-api-consumer/README.md for the Docker variant)
+(cd clients/mortgage-api-consumer && npm install && npm test && \
+  MORTGAGE_API_PASSWORD="$(grep '^AUTH_SEED_PASSWORD=' ../../.env | cut -d= -f2-)" npm run demo)
+
 # Repository contract checks (schemas <-> examples <-> catalog <-> Java producer records)
 docker run --rm -v "$PWD":/w -w /w python:3.14.7-slim sh -c "pip install -q pytest jsonschema && python -m pytest -q tests/contract"
 ```

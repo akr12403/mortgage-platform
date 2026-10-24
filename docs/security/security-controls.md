@@ -153,3 +153,4 @@ Over the limit the response is **429 `RATE_LIMITED`** in the shared envelope wit
 | `analytics` `tests/test_owasp.py`, `tests/test_hardening_units.py` | headers, 400 envelope, date and ID validation, upload size/type/filename/ordering, upload rate limit, no storage-detail leaks |
 | `tests/security/test_static_sql.py` | no string-built SQL in any service |
 | `tests/security/test_owasp_smoke.py` | the same controls against the live stack |
+| `clients/mortgage-api-consumer` `npm test` (Task 6.4) | the client side of the contract: Bearer on every call, 401 → one re-login + one retry, 403 never retried, 429 honours `Retry-After`, token never in logs or errors, HTTPS required off localhost |
