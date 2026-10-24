@@ -31,7 +31,9 @@ x-aws-env: &aws-env
 
 services:
   postgres:
-    image: postgres:17.7
+    # PostgreSQL 17 + pgvector (M7 knowledge assistant). Same Debian trixie base as postgres:17.7, so existing
+    # volumes start unchanged; migration 005 enables the extension.
+    image: pgvector/pgvector:0.8.7-pg17-trixie
     container_name: capstone-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-mortgage_app}
@@ -172,6 +174,33 @@ services:
       messaging-init:
         condition: service_completed_successfully
     # HEALTHCHECK (GET /health) is defined in docker/Dockerfile.analytics-service
+
+  # M7 Task 7.2: one-off ingestion of the knowledge corpus into pgvector (not started by `up`).
+  #   docker compose run --rm knowledge-ingest                                      # embed + store (needs LLM_API_KEY)
+  #   docker compose run --rm knowledge-ingest python -m src.ingest --dry-run --show-chunks   # no API calls
+  knowledge-ingest:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.knowledge-assistant
+      target: runtime
+    image: capstone/knowledge-assistant:dev
+    profiles: ["ingest"]
+    environment:
+      <<: *db-env
+      LLM_API_BASE: ${LLM_API_BASE:-https://api.openai.com/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
+      KNOWLEDGE_VERSION: ${KNOWLEDGE_VERSION:-v1}
+      RAG_CHUNK_SIZE: ${RAG_CHUNK_SIZE:-512}
+      RAG_CHUNK_OVERLAP: ${RAG_CHUNK_OVERLAP:-64}
+    volumes:
+      # Mounted read-only so corpus edits are picked up without rebuilding the image.
+      - ./ai/mortgage-knowledge-assistant/knowledge:/app/knowledge:ro
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+    restart: "no"
 
 volumes:
   mortgage_platform_canonical_postgres_data_v2:

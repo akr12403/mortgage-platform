@@ -36,6 +36,15 @@ python-test:
     - changes:
         - analytics/mortgage-analytics-service/**/*
 
+assistant-test:
+  stage: test
+  image: python:3.14.7-slim
+  script:
+    - cd ai/mortgage-knowledge-assistant && pip install -r requirements-dev.txt && python -m pytest -q tests
+  rules:
+    - changes:
+        - ai/mortgage-knowledge-assistant/**/*
+
 java-test-mortgage:
   stage: test
   image: maven:3.9-eclipse-temurin-17
