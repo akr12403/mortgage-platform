@@ -9,7 +9,7 @@ The capstone runs one PostgreSQL database (`mortgage_intel`, schema in `database
 | **`mortgage-service`** | 8080 | `borrower`, `mortgage` (incl. `status`), `loan`, `payment`, `idempotency_record`, `app_user` | — | `POST /api/v1/auth/login`<br>`POST /api/v1/borrowers`, `GET /api/v1/borrowers/{id}`<br>`POST /api/v1/mortgages`, `GET /api/v1/mortgages/{id}`, `GET /api/v1/mortgages?borrowerId=`<br>`POST /api/v1/mortgages/{id}/underwriting-decision`<br>`POST`/`GET /api/v1/mortgages/{id}/payments`<br>`POST /api/v1/delinquency-evaluations` | `MortgageCreated`, `LoanApproved`, `PaymentReceived`, `PaymentMissed`, `LoanDelinquent` | — |
 | **`servicing-service`** | 8081 | `servicing_history`, `delinquency` (snapshot projected from `LoanDelinquent`), `event_inbox` | `mortgage` (resolve `MTG-*` → UUID, current status) | `GET /api/v1/mortgages/{id}/servicing-history`<br>`GET /api/v1/mortgages/{id}/delinquency`<br>`POST /api/v1/mortgages/{id}/servicing-events` | — | all five, via `capstone-mortgage-servicing-dev` |
 | **`mortgage-analytics-service`** | 8000 | `document` (M3 upload metadata) | `borrower`, `mortgage`, `payment`, `delinquency` (reporting) | `GET /health`, `/api/v1/analytics/portfolio-summary`, `/delinquency`, `/borrowers/{id}/risk-summary`, `/payment-trends`, `/event-stats`, `POST /api/v1/documents/upload` | — | all five, via `capstone-mortgage-analytics-dev` (snapshot refresh) |
-| `mortgage-knowledge-assistant` | 8001 | (M7) | — | (M7) | — | — |
+| **`mortgage-knowledge-assistant`** | 8001 | `knowledge_chunk` (pgvector; synthetic policy corpus only, M7) | — (no borrower tables) | `GET /health`, `POST /api/v1/assistant/ask` (M7 Task 7.4) | — | — |
 
 ## Ownership by table
 
@@ -25,6 +25,7 @@ The capstone runs one PostgreSQL database (`mortgage_intel`, schema in `database
 | `delinquency` | servicing-service (from `LoanDelinquent`) | analytics |
 | `event_inbox` | servicing-service | — |
 | `document` | analytics-service | — |
+| `knowledge_chunk` | knowledge-assistant (ingestion, migration 005) | — |
 
 ## Messaging resources
 

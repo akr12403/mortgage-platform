@@ -161,14 +161,15 @@ PY_AUDIT_SCRIPT='set -e
     apt-get update -qq && apt-get install -y -qq --no-install-recommends build-essential libpq-dev >/dev/null
   fi
   python3 -m venv /tmp/audit-venv && . /tmp/audit-venv/bin/activate
-  pip install -q --disable-pip-version-check -r analytics/mortgage-analytics-service/requirements-dev.txt "$PIP_AUDIT_SPEC"
+  pip install -q --disable-pip-version-check -r analytics/mortgage-analytics-service/requirements-dev.txt \
+    -r ai/mortgage-knowledge-assistant/requirements-dev.txt "$PIP_AUDIT_SPEC"
   status=0
   pip-audit --progress-spinner off --desc on -f columns -o "$REPORT_FILE" || status=$?
   cat "$REPORT_FILE" 2>/dev/null || true
   exit $status'
 
 gate_sca_python() {
-  log "SCA: analytics (pip-audit on the resolved runtime + dev requirements; any known vulnerability fails)"
+  log "SCA: analytics + knowledge assistant (pip-audit on the resolved runtime + dev requirements; any known vulnerability fails)"
   if [ -n "${GITLAB_CI:-}" ] || ! command -v docker >/dev/null 2>&1; then
     # GitLab: the job already runs in the pinned python image. Elsewhere (laptop, GitHub runner) use that image.
     set -- env REPORT_FILE="$ROOT/$REPORTS/pip-audit.txt" PIP_AUDIT_SPEC="$PIP_AUDIT_SPEC" sh -c "$PY_AUDIT_SCRIPT"

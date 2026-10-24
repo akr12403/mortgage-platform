@@ -1,0 +1,4 @@
+# Runtime dependencies (baked into the container image)
+PyYAML>=6.0.2
+tiktoken>=0.14.0
+psycopg2-binary>=2.9.10

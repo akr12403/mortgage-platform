@@ -1,0 +1,43 @@
+# mortgage-knowledge-assistant (M7). Same layout as the analytics image: build / test / runtime stages.
+# Task 7.2: the image runs the ingestion command. Task 7.4 adds the FastAPI app on port 8001.
+
+# ---------- Build stage: compilers + headers live here only ----------
+FROM python:3.14.7-slim AS builder
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN python -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH \
+    TIKTOKEN_CACHE_DIR=/opt/tiktoken
+COPY ai/mortgage-knowledge-assistant/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+# Download the tokenizer encoding once, at build time, so the container never fetches it at runtime.
+RUN python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
+
+# ---------- Test stage (optional): docker build --target test ... ----------
+FROM builder AS test
+COPY ai/mortgage-knowledge-assistant/requirements-dev.txt /tmp/requirements-dev.txt
+RUN cd /tmp && pip install --no-cache-dir -r requirements-dev.txt
+WORKDIR /app
+COPY ai/mortgage-knowledge-assistant/ ./
+CMD ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests"]
+
+# ---------- Runtime stage (default): venv + source + corpus only, non-root ----------
+FROM python:3.14.7-slim AS runtime
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libpq5 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system app && useradd --system --gid app --no-create-home app
+COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /opt/tiktoken /opt/tiktoken
+ENV PATH=/opt/venv/bin:$PATH \
+    TIKTOKEN_CACHE_DIR=/opt/tiktoken \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+WORKDIR /app
+COPY ai/mortgage-knowledge-assistant/src/ ./src/
+COPY ai/mortgage-knowledge-assistant/knowledge/ ./knowledge/
+# Read-only for the app user whatever the host file modes were (a 0600 checkout would otherwise be unreadable).
+RUN chmod -R a+rX,go-w /app /opt/tiktoken
+USER app
+CMD ["python", "-m", "src.ingest"]
