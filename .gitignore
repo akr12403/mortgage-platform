@@ -30,3 +30,6 @@ database/*.dump
 # Node (M6 TypeScript client)
 node_modules/
 dist/
+
+# Security gate reports (M6 Task 6.7, scripts/security-gates.sh)
+reports/

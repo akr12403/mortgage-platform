@@ -1,0 +1,24 @@
+# Secret detection policy (M6 Task 6.7). Used by scripts/security-gates.sh in CI (GitHub Actions, GitLab) and locally.
+# Starts from gitleaks' built-in rules and allowlists ONLY the deliberate test fixtures below.
+# Never allowlist a real secret: rotate it instead (docs/operations/runbook.md#if-a-secret-was-committed-to-git).
+title = "capstone mortgage-platform gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Known test-only fixtures (unit tests sign/verify tokens with these; they protect nothing)"
+regexes = [
+  '''test-only-jwt-secret-0123456789-abcdefghijklmnop''',
+  '''attacker-controlled-secret-0123456789-xyz''',
+  '''test-only-db-password''',
+  '''seed-password-123''',
+  '''definitely-wrong-1''',   # tests/security/test_owasp_smoke.py: wrong password for the login rate-limit probe
+  '''abc\.def\.ghi''',         # scripts/m5-demo.sh: deliberately invalid Bearer token (expects 401)
+]
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)dist/''',
+  '''(^|/)target/''',
+  '''(^|/)reports/security/''',
+]

@@ -14,6 +14,7 @@ Prioritised fixes for the findings in the [vulnerability report](./vulnerability
 | B-04 | **P1** | VULN-M6-001 mass assignment on payments (High) | `PaymentRequest` DTO | [`8ec934e`](https://github.com/akr12403/mortgage-platform/commit/8ec934e) | `MassAssignmentRegressionTest`, `test_owasp_smoke.py` |
 | B-05 | P2 | VULN-M6-005/006/007 login throttling, upload restrictions, query bounds | rate limits, upload limits and checks, page and date limits | [`8ec934e`](https://github.com/akr12403/mortgage-platform/commit/8ec934e) | `RateLimitTest`, `InputValidationTest`, `test_owasp.py`, `test_owasp_smoke.py` |
 | B-06 | P2 | VULN-M6-008 PII to RISK_ANALYST; VULN-M6-009 default DB password | names only for `BORROWER_PII_READ`; no default secrets, fail fast | Task 6.6 commit on `feature/M6-task6` | `test_data_protection.py`, `SecretConfigurationTest` ×2, `test_rbac_smoke.py` |
+| B-06c | **P0** | VULN-M6-018 dependencies with Critical CVEs (Tomcat 10.1.20; netty-handler on 3.5.16) | Spring Boot 3.2.5 → 3.5.16, Tomcat 10.1.61, Netty 4.1.139, Jackson 2.21.7, pgjdbc 42.7.14 | Task 6.7 commit on `feature/M6-task7` | `dependency-scanning` gate, full Java suites |
 | B-06b | P3 | VULN-M6-012/013/014 headers, validation envelope, storage error leak | header set, 400 envelope, generic 502 | [`8ec934e`](https://github.com/akr12403/mortgage-platform/commit/8ec934e) | `SecurityHeadersTest`, `SecurityHardeningTest`, `test_owasp.py` |
 
 ## Open (ordered by priority)
@@ -27,9 +28,10 @@ Prioritised fixes for the findings in the [vulnerability report](./vulnerability
 | B-13 | P2 | Malware scanning of uploaded documents before staff can download them | R-08 | an EICAR test file is quarantined and never served | Analytics lead | M8 |
 | B-14 | P2 | CI check that logs contain no PII or tokens (log-redaction test on a sample run) | R-14 | the pipeline fails when a test log contains an email, a JWT or a seed name | Platform lead | M9 |
 | B-15 | P2 | MFA for staff via the corporate identity provider (OIDC) | R-01 | the login flow requires a second factor for all roles | Security lead | before go-live |
-| B-16 | P2 | SAST, SCA and secret-scanning gates that block merge on Critical findings | R-16 | an intentional test secret fails the pipeline (M6 validation item) | Platform lead | **Task 6.7** |
+| B-16 | P2 | SAST, SCA and secret-scanning gates that block merge on Critical findings | R-16 | an intentional test secret fails the pipeline (M6 validation item) | Platform lead | **Implemented in Task 6.7** ([devsecops-baseline.md](../operations/devsecops-baseline.md#security-gates-task-67)); closes after the first green run with branch protection on |
 | B-07 | P3 | Remove internal UUIDs (`id`) from API responses (v1 → v2 or additive deprecation) | VULN-M6-015, R-15 | responses carry business IDs only; OpenAPI and Postman updated | Backend lead | M9 |
 | B-08 | P3 | Analytics: disable `/docs`, `/redoc` and `/openapi.json` unless `ENABLE_API_DOCS=true`; uvicorn `--no-server-header` | VULN-M6-016, R-15 | the docs return 404 by default; no `server` header | Analytics lead | before the first shared environment |
+| B-18 | P2 | Migrate both Java services to Spring Boot 4.x (Spring Framework 7, Spring Security 7, Jackson 3) so framework patches stay open source | R-17, VULN-M6-018, VULN-M6-019 | all test suites green; the dependency gate passes **with the two Spring `.trivyignore` entries removed** | Backend lead | M9, and before **2026-12-31**, when the exceptions expire |
 | B-17 | P3 | Field-level KMS envelope encryption for `date_of_birth` (and any future SSN) | R-12, [classification](./security-controls.md#encryption-task-65) | a DB dump shows ciphertext only for Restricted columns | Backend lead | before real data |
 
 ## Rules

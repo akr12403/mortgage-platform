@@ -1,5 +1,7 @@
-# Reference GitLab CI — merge into root .gitlab-ci.yml and expand in Milestone 9.
-# Stages align with curriculum Session 21 / 31.
+# GitLab CI. M6 Task 6.7 adds the blocking security gates (secret detection, SAST, dependency scanning).
+# The gates are defined once in scripts/security-gates.sh and also run in .github/workflows/security-gates.yml.
+# Merge blocking: Settings > Merge requests > "Pipelines must succeed" + protected develop/main
+# (docs/operations/devsecops-baseline.md#how-a-merge-is-blocked). Full deploy pipeline: Milestone 9.
 
 stages:
   - validate
@@ -12,12 +14,22 @@ variables:
 
 secret_detection:
   stage: validate
+  image:
+    name: zricethezav/gitleaks:v8.30.1
+    entrypoint: [""]
+  variables:
+    GIT_DEPTH: "0"            # full history: a secret removed later is still a leak
   script:
-    - echo "Configure GitLab Secret Detection or gitleaks — fail on findings"
+    - sh scripts/security-gates.sh secrets
+    - sh scripts/security-gates.sh selftest
+  artifacts:
+    when: always
+    paths: [reports/security/gitleaks.json]
+    expire_in: 30 days
 
 python-test:
   stage: test
-  image: python:3.11
+  image: python:3.14.7-slim
   script:
     - cd analytics/mortgage-analytics-service && pip install -r requirements-dev.txt && python -m pytest -q tests
   rules:
@@ -45,7 +57,7 @@ java-test-servicing:
 
 contract-test:
   stage: test
-  image: python:3.11
+  image: python:3.14.7-slim
   script:
     - pip install pytest jsonschema && python -m pytest -q tests/contract
   rules:
@@ -57,13 +69,57 @@ contract-test:
 
 sast:
   stage: security
+  image: semgrep/semgrep:1.178.0
   script:
-    - echo "Add GitLab SAST template in Milestone 6/9"
+    - sh scripts/security-gates.sh sast
+  artifacts:
+    when: always
+    paths: [reports/security/semgrep.json]
+    expire_in: 30 days
 
-sca:
+static_sql_guard:
   stage: security
+  image: python:3.14.7-slim
   script:
-    - echo "Add dependency scanning — block Critical CVEs per team policy"
+    - python3 tests/security/test_static_sql.py
+
+# Trivy scans the poms offline against a local Maven repository (Maven Central rate-limits bulk POM fetching),
+# so Maven resolves the dependencies first. MAVEN_OPTS (top of file) points Maven at $CI_PROJECT_DIR/.m2/repository.
+dependency_resolve:
+  stage: security
+  image: maven:3.9-eclipse-temurin-17
+  script:
+    - (cd services/mortgage-service && mvn -B -q dependency:resolve)
+    - (cd services/servicing-service && mvn -B -q dependency:resolve)
+  artifacts:
+    paths: [.m2/repository]
+    expire_in: 1 hour
+
+dependency_scanning:
+  stage: security
+  needs: [dependency_resolve]
+  image:
+    name: aquasec/trivy:0.75.0
+    entrypoint: [""]
+  variables:
+    HOME: "$CI_PROJECT_DIR"   # trivy looks for the local Maven repository in $HOME/.m2/repository
+  script:
+    - sh scripts/security-gates.sh sca-java
+    - sh scripts/security-gates.sh sca-npm
+  artifacts:
+    when: always
+    paths: ["reports/security/trivy-*.txt"]
+    expire_in: 30 days
+
+dependency_scanning_python:
+  stage: security
+  image: python:3.14.7-slim
+  script:
+    - sh scripts/security-gates.sh sca-python
+  artifacts:
+    when: always
+    paths: [reports/security/pip-audit.txt]
+    expire_in: 30 days
 
 docker-build:
   stage: build

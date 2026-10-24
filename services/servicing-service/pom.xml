@@ -6,7 +6,9 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.2.5</version>
+        <!-- M6 Task 6.7 (VULN-M6-018): 3.2.5 shipped Tomcat 10.1.20 with Critical CVEs (CVE-2025-24813,
+             CVE-2024-50379, CVE-2024-56337). 3.5.16 is the newest 3.x release; Spring Boot 4 migration is backlog B-18. -->
+        <version>3.5.16</version>
         <relativePath/>
     </parent>
     <groupId>com.capstone</groupId>
@@ -16,6 +18,16 @@
     <description>Mortgage Servicing Service</description>
     <properties>
         <java.version>17</java.version>
+        <!-- Newest Tomcat 10.1.x on Maven Central (2026-10-06): includes every 10.1 security fix published after the
+             version that Spring Boot 3.5.16 manages (10.1.55). Re-check with `sh scripts/security-gates.sh sca`. -->
+        <tomcat.version>10.1.61</tomcat.version>
+        <!-- Dependency-gate findings (M6 Task 6.7): patch releases newer than Spring Boot 3.5.16 manages.
+             netty 4.1.135 -> 4.1.139: CVE-2026-75595 (Critical) + codec DoS CVEs (High)
+             jackson 2.21.4 -> 2.21.7: CVE-2026-89407/89425/68497/91776/91777 (High, DoS)
+             postgresql 42.7.11 -> 42.7.14: CVE-2026-54291 (High, SCRAM channel-binding downgrade) -->
+        <netty.version>4.1.139.Final</netty.version>
+        <jackson-bom.version>2.21.7</jackson-bom.version>
+        <postgresql.version>42.7.14</postgresql.version>
     </properties>
 
     <dependencyManagement>

@@ -32,14 +32,15 @@ Threats come from the [threat model](./threat-model.md) (`T-xx`), and findings f
 | R-13 | Forged, tampered or poison events corrupt servicing data | T-16 T-17 | 2×4 = 8 | publish rights only for mortgage-service, schema validation, dedupe, DLQ after 3 receives | 1 | 4 | 4 Low | Backend lead | Mitigated. IAM topic policy in M9 Terraform | M9 |
 | R-14 | PII or tokens written to logs | T-18 | 3×4 = 12 | logging rules (IDs and usernames only), no bodies or tokens logged, KMS log groups planned | 2 | 4 | 8 Medium | Platform lead | Partial. Automated log-redaction check in CI (B-14) | M9 |
 | R-15 | Reconnaissance helped by public API docs, internal IDs and server banners | T-22 · VULN-M6-015 VULN-M6-016 | 3×2 = 6 | deny-by-default routes, generic errors | 3 | 2 | 6 Low | Analytics lead | Open (B-07, B-08) | before the first shared environment |
-| R-16 | Supply-chain compromise through dependencies or the pipeline | T-24 | 3×5 = **15** | protected branches and review (M2), pinned versions, lockfile for the TS client | 2 | 5 | 10 Medium | Platform lead | Planned. SAST, SCA and secret scan gates in Task 6.7, full pipeline in M9 | 6.7 |
+| R-16 | Supply-chain compromise through dependencies or the pipeline | T-24 | 3×5 = **15** | protected branches and review (M2), pinned versions, lockfile for the TS client, blocking CI gates: gitleaks, Semgrep, Trivy, pip-audit (6.7) | 2 | 5 | 10 Medium | Platform lead | Mitigated (Task 6.7): blocking secret, SAST and dependency gates on every PR ([devsecops-baseline.md](../operations/devsecops-baseline.md)); image/IaC scanning and digest pinning in M9 | M9 |
+| R-17 | Framework line out of open-source support: Spring Boot 3.5 / Spring Framework 6.2 / Spring Security 6.5 get no further OSS patches after June 2026 | VULN-M6-018 VULN-M6-019 | 4×4 = **16** | newest available 3.5.16; Tomcat pinned to the current 10.1.x; dependency gate reports every new HIGH/CRITICAL | 3 | 4 | 12 Medium | Backend lead | Open. Migrate to Spring Boot 4.x (B-18); until then the gate flags any new Critical and the PR is blocked | M9 |
 
 ## Heat map (residual)
 
 | Impact ↓ / Likelihood → | 1 | 2 | 3 | 4 | 5 |
 | --- | --- | --- | --- | --- | --- |
 | **5** | R-03 R-06 R-11 | R-01 R-04 R-08 R-12 R-16 | | | |
-| **4** | R-02 R-07 R-10 R-13 | R-05 R-14 | | | |
+| **4** | R-02 R-07 R-10 R-13 | R-05 R-14 | R-17 | | |
 | **3** | | | R-09 | | |
 | **2** | | | R-15 | | |
 
@@ -52,6 +53,7 @@ No residual risk is in the High band.
 | R-04 shared HMAC key | Security lead | Three internal services in one trust zone; asymmetric keys add a JWKS endpoint and key distribution, which belong with the M9 platform work | key ≥ 256 bit, Secrets Manager only, 90-day rotation, compromise playbook in the runbook | M9 sign-off |
 | R-05 no token revocation | Security lead | 1 h TTL bounds the window; a key rotation revokes everything in an emergency | HTTPS only; clients keep tokens in memory | M9 sign-off |
 | VULN-M6-017 per-instance rate limits (part of R-09) | Platform lead | correct for the single-instance stack | must be replaced before horizontal scaling | first multi-replica deploy |
+| VULN-M6-019 Spring Framework 6.2 CVE-2026-47884 / CVE-2026-47890 (part of R-17) | Backend lead + security lead | no open-source 6.2.x fix; vendor rates Medium/Low; `XsltView` and SSE view fragments are not used | no views, XSLT or SSE may be added; the `.trivyignore` entries carry `exp:2026-12-31`, after which the gate fails | 2026-12-31 or the Spring Boot 4 migration (B-18), whichever comes first |
 
 ## Review
 
