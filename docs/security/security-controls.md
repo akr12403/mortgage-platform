@@ -1,6 +1,6 @@
 # Security Controls
 
-Covers M6 **Task 6.2 (RBAC)** and **Task 6.3 (OWASP API Top 10 hardening)**. Data classification and encryption (Task 6.5) will be added to this file. Authentication: [authentication.md](./authentication.md).
+Covers M6 **Task 6.2 (RBAC)**, **Task 6.3 (OWASP API Top 10 hardening)** and **Task 6.5 ([data classification](#data-classification-task-65) and [encryption](#encryption-task-65))**. Secrets rotation: [runbook](../operations/runbook.md#secrets-rotation). Authentication: [authentication.md](./authentication.md).
 
 ## Roles
 
@@ -154,3 +154,114 @@ Over the limit the response is **429 `RATE_LIMITED`** in the shared envelope wit
 | `tests/security/test_static_sql.py` | no string-built SQL in any service |
 | `tests/security/test_owasp_smoke.py` | the same controls against the live stack |
 | `clients/mortgage-api-consumer` `npm test` (Task 6.4) | the client side of the contract: Bearer on every call, 401 → one re-login + one retry, 403 never retried, 429 honours `Retry-After`, token never in logs or errors, HTTPS required off localhost |
+
+## Data classification (Task 6.5)
+
+All data in this repository and in every non-production environment is **synthetic** (`docs/requirements/project-scope.md`). The classification below describes how the platform must treat the **real** equivalent, and the controls are built to that level now.
+
+### Levels
+
+| Level | Meaning | Examples here | Handling |
+| --- | --- | --- | --- |
+| **Public** | Approved for anyone; disclosure causes no harm | `/health` and `/actuator/health` responses, published product information | No restrictions beyond integrity |
+| **Internal** | For staff and systems; low harm if leaked | business IDs (`BOR-###`, `MTG-####`), statuses, aggregates, staff usernames and roles, API specs, architecture docs | Authenticated access; may appear in logs, events and tickets |
+| **Confidential** | Personal or financial information about an identifiable borrower (PII / nonpublic personal information) | names, email, phone, loan terms, balances, payments, delinquency | RBAC need-to-know, encrypted in transit and at rest, **never in logs, events, URLs or AI prompts**; masked outside production |
+| **Restricted** | Severe harm if leaked: enables identity theft, account takeover or forging access | date of birth, uploaded documents (pay stubs, W-2s, tax returns), password hashes, JWTs, signing keys, DB and cloud credentials | Everything required for Confidential, plus the smallest possible set of roles or systems, KMS-encrypted storage with audited key use, never exported to analytics or non-production, rotation on suspicion |
+
+A record takes the **highest** level of any field it contains. A combination can raise the level: a business ID on its own is Internal, but a borrower risk summary that joins it to a name and balances is Confidential.
+
+### Borrower and loan data, field by field
+
+| Table.column | Level | Notes |
+| --- | --- | --- |
+| `borrower.id`, `borrower.borrower_external_id` | Internal | pseudonymous keys; they reveal nothing without the borrower table |
+| `borrower.first_name`, `borrower.last_name` | **Confidential** | direct identifiers |
+| `borrower.email`, `borrower.phone` | **Confidential** | contact PII |
+| `borrower.date_of_birth` | **Restricted** | identity-verification attribute; combined with a name it is enough for most identity fraud |
+| `borrower.created_at` | Internal | |
+| `mortgage.mortgage_external_id`, `mortgage.status` | Internal on its own; **Confidential** once linked to a borrower | `DELINQUENT` is adverse credit information about a person |
+| `mortgage.original_amount`, `mortgage.outstanding_balance`, `mortgage.origination_date` | **Confidential** | personal financial information |
+| `loan.loan_external_id` | Internal | |
+| `loan.interest_rate`, `loan.term_months`, `loan.underwriting_decision` | **Confidential** | credit decision about a person |
+| `payment.*` (dates, amount, status) | **Confidential** | payment history |
+| `idempotency_record.request_fingerprint` | **Confidential** | plain-text copy of the payment fields (amount, dates, status) |
+| `servicing_history.event_type`, `event_time` | Internal | |
+| `servicing_history.description` | **Confidential** | free-text notes. Rule: agents must not type Restricted data (DOB, SSN, account numbers) into notes |
+| `delinquency.*` | **Confidential** | days past due and severity are credit information |
+| `document.document_type`, `document.created_at` | Internal | |
+| `document.file_name`, `document.s3_key` | **Confidential** | file names often contain the borrower's name |
+| Document **contents** in S3 | **Restricted** | pay stubs, W-2s and tax returns carry SSN, income and employer |
+| `app_user.username`, `app_user.roles`, `app_user.enabled` | Internal | staff identity, not borrower data |
+| `app_user.password_hash` | **Restricted** | BCrypt(12); never returned by any API or logged |
+| `event_inbox.*` | Internal | event IDs and timestamps only |
+
+**Deliberately not collected:** SSN or tax IDs, bank account or card numbers, and income as structured fields. These exist only inside uploaded documents (Restricted), which keeps most of the database at Confidential.
+
+### Data outside the database
+
+| Asset | Level | Rule |
+| --- | --- | --- |
+| Domain events on SNS/SQS | Confidential (financial amounts) | Payloads carry **business IDs only**, never names, contact details or DOB. Enforced by the JSON Schemas in `docs/architecture/events/` and `EventSchemaContractTest`; adding a PII field to an event requires a schema change and review. |
+| API responses | level of the highest field | `GET /borrowers/{id}` is Restricted (DOB), so it is limited to `BORROWER_PII_READ`; mortgage, payment and servicing views are Confidential; analytics aggregates are Internal |
+| Application logs | must stay **Internal** | Logs carry correlation ID, user (a staff username), business IDs, event IDs and counts. They never carry request bodies, tokens, passwords, names, emails or amounts. |
+| Access tokens (JWT) | Restricted while valid | held in memory by clients (`clients/mortgage-api-consumer`); 1 h TTL; never logged |
+| Secrets (`JWT_SECRET`, DB passwords, `AUTH_SEED_PASSWORD`, AWS credentials) | Restricted | env / Secrets Manager only; rotation in the [runbook](../operations/runbook.md#secrets-rotation) |
+| OpenAPI specs, event catalog, these docs | Internal | |
+| AI assistant prompts (M7) | must stay Internal | no Confidential or Restricted fields in prompts, per trust boundary TB-4 |
+
+### Known gaps found during classification (tracked for Task 6.6)
+
+| ID | Gap | Why it matters | Proposed fix |
+| --- | --- | --- | --- |
+| DP-GAP-1 | `GET /api/v1/analytics/borrowers/{id}/risk-summary` returns `firstName`/`lastName`, and `RISK_ANALYST` may call it | Contradicts the least-privilege rule above (RISK_ANALYST works on aggregates and has no PII access) | Return the business ID only, or mask names for roles outside `BORROWER_PII_READ` |
+| DP-GAP-2 | The DB password has code defaults (`postgres` in the Java `application.yml`, `change-me` in analytics) | A misconfigured deployment would start with a guessable credential instead of failing | Require `POSTGRES_PASSWORD` with no default outside the `local` profile, the way `JWT_SECRET` already works |
+| DP-GAP-3 | API responses include internal UUIDs (`id`) next to business IDs | Not sensitive in itself, but it leaks internal structure (Internal-level data) | Drop `id` from response DTOs in a versioned API change |
+
+## Encryption (Task 6.5)
+
+### In transit
+
+The path follows the trust boundaries in [`trust-boundaries.md`](../architecture/trust-boundaries.md) and the topology in [`deployment-architecture.md`](../architecture/deployment-architecture.md).
+
+| Hop | Boundary | Production (M9) | Local Docker (today) |
+| --- | --- | --- | --- |
+| Client → edge | TB-1 | **TLS terminates at the public ALB** (per the M1 deployment doc). Certificates from ACM with automatic renewal; security policy `ELBSecurityPolicy-TLS13-1-2-2021-06` (TLS 1.3, 1.2 fallback, no TLS 1.0/1.1); port 80 only redirects to 443; AWS WAF in front. The services add HSTS (`max-age=31536000; includeSubDomains`) on HTTPS responses (Task 6.3). | plain HTTP on `localhost` only. The TS client refuses plain HTTP to any non-local host. |
+| ALB → services | TB-2 | **Re-encrypted**: HTTPS target groups, with each service serving TLS on its app port (Spring `server.ssl.*`, uvicorn `--ssl-*`, certificate from AWS Private CA). Services sit in private subnets and their security groups accept only the ALB. That satisfies the "TLS for all traffic across trust boundaries" rule, so the internal network is never trusted on its own. | HTTP on the compose network |
+| Service → PostgreSQL (RDS) | TB-3 | TLS required on both sides: the RDS parameter `rds.force_ssl=1`, and clients use `sslmode=verify-full` with the RDS CA bundle (JDBC `?sslmode=verify-full&sslrootcert=…`, psycopg `sslmode=verify-full`) | unencrypted on the private compose network |
+| Service → S3 / SNS / SQS | TB-3 | AWS SDK over HTTPS through VPC endpoints. Bucket and queue policies **deny** any request with `aws:SecureTransport = false`. | LocalStack over HTTP |
+| Service → service (events) | TB-3 | through SNS/SQS only (above); no direct service-to-service calls today. If any are added, they use mTLS. | LocalStack |
+
+The local exceptions are acceptable only because local data is synthetic and never leaves the machine. Do not point a local stack at real data.
+
+### At rest
+
+| Store | Data level | Encryption | Notes |
+| --- | --- | --- | --- |
+| RDS PostgreSQL (all tables) | up to Restricted (DOB, password hashes) | **RDS storage encryption with a customer-managed KMS key** `alias/capstone-<env>-rds`; automated backups, snapshots and read replicas inherit it | Encryption must be enabled **at creation**: it cannot be switched on later without snapshot → encrypted copy → restore. Snapshots are shared only with re-encryption under the target account's key. |
+| S3 document bucket | Restricted | **SSE-KMS** default bucket encryption with `alias/capstone-<env>-documents` and S3 Bucket Keys; Block Public Access on; versioning; the bucket policy denies uploads without `aws:kms` and any non-TLS access | The upload code (`s3_service.py`) relies on the bucket default, so there is no per-object encryption setting to forget |
+| SNS topic and SQS queues (+ DLQs) | Confidential | SSE with `alias/capstone-<env>-messaging` | the key policy lets only the publisher and consumers use it |
+| Secrets (JWT signing key, DB credentials) | Restricted | AWS Secrets Manager, encrypted with `alias/capstone-<env>-secrets` | injected as env at task start; see the [runbook](../operations/runbook.md#secrets-rotation) |
+| CloudWatch Logs | Internal | KMS-encrypted log groups (`alias/capstone-<env>-logs`) | logs must not contain Confidential data in the first place |
+| Container storage (ECS/Fargate ephemeral, EBS) | transient | encrypted by default (AWS-managed keys) | services keep no data on local disk; uploads are streamed to S3 |
+| M8 data lake / exports | Internal (aggregates) | SSE-KMS; Restricted columns (DOB, documents) are **excluded** from exports | M8 data platform buckets |
+| Passwords | Restricted | **hashed, not encrypted**: BCrypt cost 12 | cannot be decrypted, by design |
+| Local Docker volume `pgdata` | synthetic only | not encrypted by the stack | rely on host disk encryption (FileVault / BitLocker) |
+
+**Column-level encryption:** today, `date_of_birth` is protected by RDS storage encryption plus RBAC (`BORROWER_PII_READ`), not by field-level encryption. Storage encryption protects disks, snapshots and backups, but not a compromised app or a SQL account with SELECT. Before real data is loaded, encrypt `date_of_birth` (and any SSN, if one is ever collected) in the application with KMS envelope encryption (a data key per record, wrapped by `alias/capstone-<env>-pii`), so a DB dump alone exposes no Restricted values. This is a planned item, not built.
+
+### KMS key plan
+
+| Alias | Protects | Key users (IAM roles) | Key admins |
+| --- | --- | --- | --- |
+| `alias/capstone-<env>-rds` | RDS storage, snapshots | RDS service | platform admins (no decrypt) |
+| `alias/capstone-<env>-documents` | S3 documents | analytics-service task role | platform admins |
+| `alias/capstone-<env>-messaging` | SNS, SQS, DLQs | mortgage-service (publish), servicing and analytics (consume) | platform admins |
+| `alias/capstone-<env>-secrets` | Secrets Manager entries | each service reads only its own secrets | security team |
+| `alias/capstone-<env>-logs` | CloudWatch log groups | CloudWatch Logs | platform admins |
+| `alias/capstone-<env>-pii` (planned) | field-level DOB / SSN encryption | mortgage-service only | security team |
+
+- Customer-managed keys, **one set per environment**: a dev key can never decrypt prod data.
+- **Automatic annual key rotation** is enabled. AWS keeps the old key material, so existing data stays readable and needs no re-encryption.
+- Key administrators and key users are separate roles; no human role has `kms:Decrypt` on prod keys in normal operation.
+- Every `Decrypt`/`GenerateDataKey` call is logged in CloudTrail. Unusual use (a new principal, volume spikes) alerts the security team (M9 observability).
+- Deleting a key uses the 30-day waiting period and requires two-person approval, because deleting a key destroys its data.

@@ -66,7 +66,7 @@ All use the shared envelope `{code, message, correlationId, timestamp}`.
 
 ## Rotating the JWT secret
 
-Change `JWT_SECRET` in the environment for **both** Java services and restart them. Every outstanding token becomes invalid immediately, and clients log in again. Zero-downtime rotation (accept old and new keys during a grace period using `kid`) is noted as future work in the M6 runbook (Task 6.5).
+Change `JWT_SECRET` in the environment for **all three** services (mortgage-service issues tokens; servicing-service and analytics-service validate them) and restart them. Step-by-step: [runbook → JWT signing key](../operations/runbook.md#jwt-signing-key-jwt_secret). Every outstanding token becomes invalid immediately, and clients log in again. Zero-downtime rotation (accept old and new keys during a grace period using `kid`) is described as future work in the [runbook](../operations/runbook.md#zero-downtime-key-rotation-future).
 
 ## Verify
 
