@@ -13,7 +13,7 @@ The Enterprise Mortgage Platform is an event-driven, microservices-based system 
 | **M3** | Python Analytics | 3 | `docs/milestones/m03.md` | **Completed** |
 | **M4** | Java / Spring Backend | 4–5 | `docs/milestones/m04.md` | **Completed** |
 | **M5** | Microservices & Events | 6 | `docs/milestones/m05.md` | **Completed** |
-| **M6** | Security Engineering | 7–8 | `docs/milestones/m06.md` | In progress (Tasks 6.1–6.7 implemented; sign-off pending) |
+| **M6** | Security Engineering | 7–8 | `docs/milestones/m06.md` | **Completed** |
 | **M7** | AI / RAG Assistant | 9 | `docs/milestones/m07.md` | Planned |
 | **M8** | AWS & Data Platform | 10 | `docs/milestones/m08.md` | Planned |
 | **M9** | CI/CD, Terraform, Observability | 11 | `docs/milestones/m09.md` | Planned |
@@ -160,6 +160,48 @@ sh scripts/security-gates.sh all
 # Repository contract checks (schemas <-> examples <-> catalog <-> Java producer records)
 docker run --rm -v "$PWD":/w -w /w python:3.14.7-slim sh -c "pip install -q pytest jsonschema && python -m pytest -q tests/contract"
 ```
+
+---
+
+## 🚀 Milestone 6 Status: COMPLETED — SECURITY ENGINEERING
+
+M6 secures the platform end to end:
+
+- **authentication:** JWT login;
+- **authorization:** RBAC for five roles, with server-side enforcement and deny by default;
+- **OWASP API Top 10 hardening;**
+- **a secure TypeScript API consumer;**
+- **data protection:** classification, encryption and secrets rotation;
+- **security testing artifacts;**
+- **blocking CI security gates.**
+
+| Area | Where |
+| --- | --- |
+| Authentication (6.1) | [docs/security/authentication.md](docs/security/authentication.md) |
+| RBAC matrix (6.2), OWASP controls (6.3), data classification + encryption (6.5) | [docs/security/security-controls.md](docs/security/security-controls.md) |
+| TypeScript secure API consumer (6.4) | [clients/mortgage-api-consumer/](clients/mortgage-api-consumer/README.md) |
+| Secrets rotation runbook (6.5) | [docs/operations/runbook.md](docs/operations/runbook.md#secrets-rotation) |
+| STRIDE threat model, risk register, vulnerability report, remediation backlog (6.6) | [threat-model.md](docs/security/threat-model.md), [risk-register.md](docs/security/risk-register.md), [vulnerability-report.md](docs/security/vulnerability-report.md), [remediation-backlog.md](docs/security/remediation-backlog.md) |
+| Secure CI gates (6.7) | [docs/operations/devsecops-baseline.md](docs/operations/devsecops-baseline.md), `scripts/security-gates.sh`, `.github/workflows/security-gates.yml`, `.gitlab-ci.yml` |
+
+### Verification evidence (2026-10-24)
+
+| Check | Result |
+| --- | --- |
+| `mortgage-service` / `servicing-service` tests | **131 / 37 passed** (Spring Boot 3.5.16 with patched Tomcat, Netty, Jackson and pgjdbc) |
+| Analytics tests | **82 passed** |
+| TypeScript client tests + demo against the live stack | **16/16**; login → GET mortgage → GET servicing history → 401 → re-login + retry → 403 surfaced |
+| Live smoke tests (auth / RBAC / OWASP) | **7/7 · 4/4 · 8/8** |
+| Security gates (`sh scripts/security-gates.sh all`, and GitHub Actions on PR #90) | secrets: no leaks in history; SAST: 0 findings; dependencies: 0 High/Critical; Python: no known vulnerabilities |
+| Intentional test secret (PR #91) | `secret-detection` **failed after 8 s**; PR closed without merging ([evidence](docs/operations/devsecops-baseline.md#pipeline-evidence-redacted-screenshot)) |
+| Vulnerabilities | 19 findings: **0 Critical/High open**; 2 Low open and 4 accepted with owner and expiry ([report](docs/security/vulnerability-report.md)) |
+| SUPPORT cannot approve a loan (M10 Journey 4) | 403 `ACCESS_DENIED` (`RbacMatrixTest`, `test_rbac_smoke.py`) |
+
+**Known limits (stated, not hidden):**
+
+- GitHub branch protection is configured but **not enforced** on this free private repository. The gates still run and fail visibly, and enforcement needs an organization plan (M9).
+- Two Spring Framework 6.2 CVEs with no open-source fix on the 3.5 line are **accepted until 2026-12-31** (unreachable, vendor-rated Medium/Low). The Spring Boot 4 migration is planned for M9 (B-18).
+- The peer and instructor review boxes in the threat model and risk register are completed at the M6 review session.
 
 ---
 
