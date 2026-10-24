@@ -2,14 +2,20 @@
 
 Task 2.6 (M2) set up the repository controls. **Task 6.7 (M6)** adds blocking security gates to CI. The full build, scan and deploy pipeline comes in M9.
 
-## Repository security settings (GitHub, from M2)
+## Repository security settings (GitHub)
 
-- **Branch protection** on `main` and `develop`:
-  - pull request reviews required before merging;
-  - stale approvals dismissed when new commits are pushed;
+- **Secret scanning** enabled on the repository (M2).
+- **Branch protection** rules on `develop` and `main` (M2, reworked in M6 for a single-developer repository):
+  - a pull request is required before merging;
+  - **no required approvals**, because GitHub never lets a PR author approve their own PR, so with one developer a required approval would block every merge. Independent review comes from the instructor review of the security artifacts and the milestone demo;
+  - the three security gates are **required status checks**, sourced from GitHub Actions, with branches required to be up to date;
+  - **no bypass**, so the rules apply to administrators too;
   - force pushes and deletions blocked.
-- **Secret scanning** enabled on the repository.
-- **Since M6:** the security gates below are **required status checks** (see [How a merge is blocked](#how-a-merge-is-blocked)).
+
+  ![Branch protection rule for develop](./img/m6-branch-protection-develop.png)
+- **Platform limitation (documented, accepted):** this is a **private repository on a free personal GitHub plan**. GitHub stores the rules above but marks them **"Not enforced"**. Enforcement needs a public repository or a GitHub Team/Enterprise organization. The gates still run on every PR and turn red on a violation (evidence below), but GitHub doesn't disable the merge button. The compensating control is the team rule that **a PR with a red security check is never merged**. The rules become enforced unchanged once the repository moves to an organization plan, which is planned for the M9 deployment setup ([risk register R-16](../security/risk-register.md)).
+
+  ![Branch protection: Not enforced on a free private repository](./img/m6-branch-protection-not-enforced.png)
 
 ## Security gates (Task 6.7)
 
@@ -74,14 +80,15 @@ Exceptions show up in the diff of the PR that adds them, so they're reviewed lik
 
 ## How a merge is blocked
 
-Every gate exits non-zero on a policy violation, and none of the security jobs is allowed to fail (no `continue-on-error` or `allow_failure`). Merging then depends on these platform settings, which aren't stored in Git, so this checklist records them:
+Every gate exits non-zero on a policy violation, and none of the security jobs is allowed to fail (no `continue-on-error` or `allow_failure`). Merging then depends on these platform settings, which aren't stored in Git, so this checklist records them (configured 2026-10-24):
 
-**GitHub (this repository)**, under Settings → Branches → branch protection rule (or Rulesets) for `develop` and for `main`:
+**GitHub (this repository)**, under Settings → Branches, for `develop` and for `main`:
 
-- [ ] **Require a pull request before merging**, with 1 approval and stale approvals dismissed (from M2)
-- [ ] **Require status checks to pass before merging**, with **Require branches to be up to date**. Required checks: `secret-detection`, `sast`, `dependency-scanning`. They appear in the list after the workflow has run once.
-- [ ] **Do not allow bypassing the above settings**, so administrators are blocked too ("no bypass of protected branches", M6 implementation requirement)
-- [ ] Force pushes and deletions blocked (from M2)
+- [x] **Require a pull request before merging** (required approvals: 0 for a single-developer repository; see above)
+- [x] **Require status checks to pass before merging**, with **Require branches to be up to date**. Required checks: `secret-detection`, `sast`, `dependency-scanning`, sourced from GitHub Actions
+- [x] **Do not allow bypassing the above settings**, so administrators are covered too ("no bypass of protected branches", M6 implementation requirement)
+- [x] Force pushes and deletions blocked
+- [ ] **Enforced by GitHub:** not on this free private repository. Requires a public repository or a GitHub Team/Enterprise organization (see [Repository security settings](#repository-security-settings-github))
 
 **GitLab (curriculum pipeline):**
 
@@ -112,12 +119,19 @@ The M6 validation item is *"Pipeline fails on intentional test secret (then remo
 
    The commit never reaches a protected branch. Because the value was random, there is nothing to rotate.
 
+**Result (2026-10-24, PR #91):** `secret-detection` **failed after 8 s** on the planted key, while `sast` and `dependency-scanning` passed. The PR was closed without merging and the branch deleted. The validation item is met: the pipeline fails on the test secret. GitHub's merge blocking is subject to the platform limitation above.
+
 ## Pipeline evidence (redacted screenshot)
 
-Save the screenshots under `docs/operations/img/` and link them here. Redact them before saving: crop out avatars, emails and anything that isn't the check list. Finding values are already redacted by gitleaks (`--redact`).
+Cropped to the checks box: no avatars, names or emails. Finding values are redacted by gitleaks (`--redact`).
 
-- [ ] `m6-security-gates-passing.png`: the PR checks list with `secret-detection`, `sast` and `dependency-scanning` green
-- [ ] `m6-secret-gate-blocked.png`: the demo PR with `secret-detection` red and *Merging is blocked*
+**PR #90 (M6 Tasks 6.1–6.7 into `develop`): all three security gates green on GitHub Actions**
+
+![All three security gates passing on PR #90](./img/m6-security-gates-passing.png)
+
+**PR #91 (intentional fake secret): `secret-detection` fails, the other gates pass**
+
+![secret-detection failing on the intentional test secret, PR #91](./img/m6-secret-gate-failing-check.png)
 
 ## Next (M9)
 
