@@ -14,6 +14,14 @@ x-jwt-env: &jwt-env
   JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (>= 32 bytes, e.g. openssl rand -base64 48) - see .env.example}
   JWT_ISSUER: ${JWT_ISSUER:-capstone-mortgage-auth}
 
+# M6 Task 6.3: in-memory rate limits (per container instance). Defaults are fine for local dev and the smoke tests.
+x-rate-limit-env: &rate-limit-env
+  RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+  RATE_LIMIT_LOGIN_PER_USER: ${RATE_LIMIT_LOGIN_PER_USER:-10}
+  RATE_LIMIT_LOGIN_PER_IP: ${RATE_LIMIT_LOGIN_PER_IP:-60}
+  RATE_LIMIT_WRITES_PER_USER: ${RATE_LIMIT_WRITES_PER_USER:-60}
+  RATE_LIMIT_UPLOADS_PER_USER: ${RATE_LIMIT_UPLOADS_PER_USER:-20}
+
 # LocalStack accepts any credentials; real AWS would use a profile/role instead (never commit keys).
 x-aws-env: &aws-env
   AWS_REGION: ${AWS_REGION:-us-east-1}
@@ -109,7 +117,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      <<: [*db-env, *aws-env, *jwt-env]
+      <<: [*db-env, *aws-env, *jwt-env, *rate-limit-env]
       SPRING_PROFILES_ACTIVE: dev
       JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-3600}
       AUTH_SEED_PASSWORD: ${AUTH_SEED_PASSWORD:?Set AUTH_SEED_PASSWORD in .env (>= 12 chars, local dev only) - see .env.example}
@@ -131,7 +139,7 @@ services:
     ports:
       - "8081:8081"
     environment:
-      <<: [*db-env, *aws-env, *jwt-env]
+      <<: [*db-env, *aws-env, *jwt-env, *rate-limit-env]
       SPRING_PROFILES_ACTIVE: dev
       SQS_QUEUE_SERVICING_EVENTS: ${SQS_QUEUE_SERVICING_EVENTS_DOCKER:-http://localstack:4566/000000000000/capstone-mortgage-servicing-dev}
       SQS_MAX_RECEIVE_COUNT: "3"
@@ -153,7 +161,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      <<: [*db-env, *aws-env, *jwt-env]
+      <<: [*db-env, *aws-env, *jwt-env, *rate-limit-env]
       SQS_QUEUE_ANALYTICS_EVENTS: ${SQS_QUEUE_ANALYTICS_EVENTS_DOCKER:-http://localstack:4566/000000000000/capstone-mortgage-analytics-dev}
       SQS_MAX_RECEIVE_COUNT: "3"
       S3_BUCKET_DOCUMENTS: ${S3_BUCKET_DOCUMENTS:-capstone-mortgage-docs-dev}

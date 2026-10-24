@@ -80,7 +80,7 @@ paths:
         - name: borrowerExternalId
           in: path
           required: true
-          schema: { type: string, example: BOR-001 }
+          schema: { type: string, pattern: '^BOR-\d{3}$', example: BOR-001 }
       responses:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -106,7 +106,9 @@ paths:
       parameters:
         - { name: from, in: query, required: true, schema: { type: string, format: date, example: '2025-01-01' } }
         - { name: to, in: query, required: true, schema: { type: string, format: date, example: '2026-12-31' } }
+      description: from must be on or before to and the range is at most 3660 days (else 400 VALIDATION_ERROR).
       responses:
+        '400': { $ref: '#/components/responses/Error' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '200':
@@ -174,10 +176,20 @@ paths:
               type: object
               required: [mortgage_external_id, document_type, file]
               properties:
-                mortgage_external_id: { type: string, example: MTG-1001 }
-                document_type: { type: string, example: INCOME_VERIFICATION }
-                file: { type: string, format: binary }
+                mortgage_external_id: { type: string, pattern: '^MTG-\d{4}$', example: MTG-1001 }
+                document_type: { type: string, pattern: '^[A-Z][A-Z_]{1,39}$', example: INCOME_VERIFICATION }
+                file:
+                  type: string
+                  format: binary
+                  description: >-
+                    Max 10 MB (413 PAYLOAD_TOO_LARGE). Allowed types application/pdf, image/png, image/jpeg, text/plain,
+                    checked against the file's leading bytes (415 UNSUPPORTED_MEDIA_TYPE). The filename is sanitised.
+                    Limited to 20 uploads per user per minute (429 RATE_LIMITED).
       responses:
+        '400': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
+        '415': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '200':

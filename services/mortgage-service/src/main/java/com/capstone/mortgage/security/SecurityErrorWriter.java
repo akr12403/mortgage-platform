@@ -43,6 +43,12 @@ public class SecurityErrorWriter implements AuthenticationEntryPoint, AccessDeni
         write(response, HttpServletResponse.SC_FORBIDDEN, "ACCESS_DENIED", "You do not have permission to perform this action");
     }
 
+    /** 429 with Retry-After, used by RateLimitFilter. */
+    public void writeRateLimited(HttpServletResponse response, long retryAfterSeconds) throws IOException {
+        response.setHeader("Retry-After", Long.toString(retryAfterSeconds));
+        write(response, 429, "RATE_LIMITED", "Too many requests; retry after " + retryAfterSeconds + " seconds");
+    }
+
     private void write(HttpServletResponse response, int status, String code, String message) throws IOException {
         String correlationId = MDC.get("correlationId");
         response.setStatus(status);

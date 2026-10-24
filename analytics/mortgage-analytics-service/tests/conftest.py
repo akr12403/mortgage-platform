@@ -3,6 +3,7 @@ import os
 import time
 
 import jwt
+import pytest
 
 TEST_JWT_SECRET = "test-only-jwt-secret-0123456789-abcdefghijklmnop"
 os.environ.setdefault("JWT_SECRET", TEST_JWT_SECRET)
@@ -18,3 +19,11 @@ def make_token(roles=("ADMIN",), sub="admin@capstone.local", secret=TEST_JWT_SEC
 
 def auth_header(*roles, **kwargs):
     return {"Authorization": f"Bearer {make_token(roles or ('ADMIN',), **kwargs)}"}
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    """Rate-limit windows are process-wide; start every test with a clean slate."""
+    from src.api.routes.documents import upload_rate_limiter
+    upload_rate_limiter.reset()
+    yield

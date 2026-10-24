@@ -4,10 +4,13 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from fastapi import FastAPI, Request, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from src.api.routes import analytics, documents
 from src.messaging.bootstrap import start_analytics_consumer
 from src.api.security import validate_settings
+from src.api.hardening import security_headers_for
+from src.api.routes.documents import MAX_UPLOAD_BYTES
 
 # Configure logging
 logging.basicConfig(
@@ -27,6 +30,40 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Mortgage Analytics Service", version="1.0.0", lifespan=lifespan)
+
+# Multipart overhead allowed on top of the file itself before the body is even parsed.
+_UPLOAD_BODY_SLACK_BYTES = 64 * 1024
+
+
+def _envelope(request: Request, status: int, code: str, message: str, headers: dict | None = None) -> JSONResponse:
+    return JSONResponse(
+        status_code=status,
+        content={
+            "code": code,
+            "message": message,
+            "correlationId": getattr(request.state, "correlation_id", "unknown"),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+        headers=headers,
+    )
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    # Task 6.3: refuse obviously oversized uploads before Starlette spools the multipart body.
+    if request.url.path == "/api/v1/documents/upload":
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > MAX_UPLOAD_BYTES + _UPLOAD_BODY_SLACK_BYTES:
+            response = _envelope(request, 413, "PAYLOAD_TOO_LARGE",
+                                 f"Uploads are limited to {MAX_UPLOAD_BYTES // (1024 * 1024)} MB")
+        else:
+            response = await call_next(request)
+    else:
+        response = await call_next(request)
+    for name, value in security_headers_for(request.url.path).items():
+        response.headers.setdefault(name, value)
+    return response
+
 
 @app.middleware("http")
 async def correlation_id_middleware(request: Request, call_next):
@@ -58,6 +95,15 @@ async def http_exception_handler(request: Request, exc: HTTPException):
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
     return JSONResponse(status_code=exc.status_code, content=error_payload, headers=getattr(exc, "headers", None))
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    # Same contract as the Java services: 400 VALIDATION_ERROR in the shared envelope (not FastAPI's 422 list).
+    errors = exc.errors()
+    first = errors[0] if errors else {}
+    field = ".".join(str(part) for part in first.get("loc", ()) if part not in ("body", "query", "path", "form"))
+    message = f"{field}: {first.get('msg', 'invalid value')}" if field else first.get("msg", "Request is invalid")
+    return _envelope(request, 400, "VALIDATION_ERROR", message)
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):

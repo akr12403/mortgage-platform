@@ -37,6 +37,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/LoginRequest' }
       responses:
+        '429': { $ref: '#/components/responses/RateLimited' }
         '200':
           description: Token issued (Cache-Control no-store)
           content:
@@ -62,6 +63,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/BorrowerRequest' }
       responses:
+        '429': { $ref: '#/components/responses/RateLimited' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '201':
@@ -108,6 +110,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/MortgageCreateRequest' }
       responses:
+        '429': { $ref: '#/components/responses/RateLimited' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '201':
@@ -141,7 +144,7 @@ paths:
           schema: { type: integer, default: 0, minimum: 0 }
         - name: size
           in: query
-          schema: { type: integer, default: 10, minimum: 1 }
+          schema: { type: integer, default: 10, minimum: 1, maximum: 100 }
       responses:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '200':
@@ -194,6 +197,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/UnderwritingDecisionRequest' }
       responses:
+        '429': { $ref: '#/components/responses/RateLimited' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '200':
@@ -254,6 +258,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/PaymentRequest' }
       responses:
+        '429': { $ref: '#/components/responses/RateLimited' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '200':
@@ -282,6 +287,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/CorrelationId'
       responses:
+        '429': { $ref: '#/components/responses/RateLimited' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '200':
@@ -323,6 +329,15 @@ components:
       description: UUID v4. Generated if absent; echoed in the response and copied into published events.
       schema: { type: string, format: uuid, example: 7c9e6679-7425-40de-944b-e07fc1f90ae7 }
   responses:
+    RateLimited:
+      description: Too many requests (code RATE_LIMITED). Login is limited per account and per client IP; writes per user (M6 Task 6.3)
+      headers:
+        Retry-After:
+          description: Seconds until the current window resets
+          schema: { type: integer, minimum: 1 }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     Forbidden:
       description: Authenticated but the caller's role is not allowed (code ACCESS_DENIED); see x-roles
       content:
@@ -410,11 +425,14 @@ components:
         decision: { type: string, enum: [APPROVED, DECLINED] }
     PaymentRequest:
       type: object
+      description: >-
+        Client-writable payment fields only (VULN-M6-001 fix). Server-owned fields such as id and mortgage are not part
+        of the request; if sent they are ignored, so a client can never overwrite an existing payment.
       required: [dueDate, amount, status]
       properties:
         dueDate: { type: string, format: date, example: '2026-03-01' }
         paidDate: { type: string, format: date, nullable: true, example: '2026-03-02', description: Required when status is POSTED }
-        amount: { type: number, minimum: 0.01, example: 1850.00 }
+        amount: { type: number, minimum: 0.01, maximum: 10000000.00, multipleOf: 0.01, example: 1850.00 }
         status: { type: string, enum: [SCHEDULED, POSTED, FAILED, REVERSED], example: POSTED }
     Payment:
       allOf:

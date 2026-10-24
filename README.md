@@ -142,9 +142,13 @@ done
 docker build -f docker/Dockerfile.analytics-service --target test -t capstone/analytics-tests .
 docker run --rm capstone/analytics-tests
 
-# M6 auth + RBAC smoke tests against the running stack (stdlib only)
+# M6 auth + RBAC + OWASP smoke tests against the running stack (stdlib only)
 python3 tests/security/test_auth_smoke.py
 python3 tests/security/test_rbac_smoke.py
+python3 tests/security/test_owasp_smoke.py
+
+# M6 static check: no string-built SQL anywhere (no stack needed)
+python3 tests/security/test_static_sql.py
 
 # Repository contract checks (schemas <-> examples <-> catalog <-> Java producer records)
 docker run --rm -v "$PWD":/w -w /w python:3.14.7-slim sh -c "pip install -q pytest jsonschema && python -m pytest -q tests/contract"

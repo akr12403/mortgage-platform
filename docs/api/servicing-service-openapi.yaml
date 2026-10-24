@@ -72,6 +72,7 @@ paths:
                 eventType: { type: string, pattern: '^[A-Z][A-Z0-9_]{2,49}$', example: ESCROW_ANALYSIS }
                 description: { type: string, maxLength: 2000 }
       responses:
+        '429': { $ref: '#/components/responses/RateLimited' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '201':
@@ -108,6 +109,15 @@ components:
       required: false
       schema: { type: string, format: uuid }
   responses:
+    RateLimited:
+      description: Too many requests (code RATE_LIMITED). Login is limited per account and per client IP; writes per user (M6 Task 6.3)
+      headers:
+        Retry-After:
+          description: Seconds until the current window resets
+          schema: { type: integer, minimum: 1 }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     Forbidden:
       description: Authenticated but the caller's role is not allowed (code ACCESS_DENIED); see x-roles
       content:

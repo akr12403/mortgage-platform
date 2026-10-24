@@ -62,7 +62,7 @@ All use the shared envelope `{code, message, correlationId, timestamp}`.
 - `JWT_SECRET` and `AUTH_SEED_PASSWORD` come from the environment only. `docker compose` refuses to start without them.
 - Unknown-user logins still run a BCrypt check against a dummy hash, so response time does not reveal which usernames exist.
 - Never logged: passwords, tokens, `Authorization` headers. Failed logins are logged at WARN with a sanitized username (CR/LF stripped). Log lines include `user=<sub>` for authenticated requests.
-- Login responses send `Cache-Control: no-store`. Responses include `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`. Fuller header and rate-limit hardening is Task 6.3.
+- Login responses send `Cache-Control: no-store`. Responses include `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`. Task 6.3 adds CSP, Permissions-Policy, CORP and HSTS (over HTTPS), and login throttling: 10 attempts per minute per (client IP, username) and 60 per minute per client IP, answered with 429 `RATE_LIMITED` and `Retry-After`. See [security-controls.md](./security-controls.md#owasp-api-security-top-10-task-63).
 
 ## Rotating the JWT secret
 

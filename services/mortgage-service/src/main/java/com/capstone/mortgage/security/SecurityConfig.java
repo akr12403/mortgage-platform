@@ -17,11 +17,14 @@ import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.header.writers.CrossOriginResourcePolicyHeaderWriter;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
+import org.springframework.security.web.header.writers.StaticHeadersWriter;
 
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 
 import javax.crypto.SecretKey;
+import java.time.Clock;
 
 /**
  * Stateless JWT security for mortgage-service (M6 Task 6.1).
@@ -37,7 +40,7 @@ import javax.crypto.SecretKey;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@EnableConfigurationProperties(JwtProperties.class)
+@EnableConfigurationProperties({JwtProperties.class, RateLimitProperties.class})
 public class SecurityConfig {
 
     @Bean
@@ -56,12 +59,18 @@ public class SecurityConfig {
     }
 
     @Bean
+    public RateLimiter rateLimiter() {
+        return new RateLimiter(Clock.systemUTC());
+    }
+
+    @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder(12);
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtDecoder jwtDecoder, ObjectMapper objectMapper)
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtDecoder jwtDecoder, ObjectMapper objectMapper,
+                                                   RateLimiter rateLimiter, RateLimitProperties rateLimitProperties)
             throws Exception {
         SecurityErrorWriter errorWriter = new SecurityErrorWriter(objectMapper);
         http
@@ -70,10 +79,18 @@ public class SecurityConfig {
                 .formLogin(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                // Security headers (Task 6.3). This is a JSON API: the CSP forbids loading or framing anything.
+                // Spring also adds Cache-Control: no-store and, on HTTPS requests only, HSTS.
                 .headers(headers -> headers
                         .contentTypeOptions(c -> {})
                         .frameOptions(f -> f.deny())
-                        .referrerPolicy(r -> r.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER)))
+                        .referrerPolicy(r -> r.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
+                        .contentSecurityPolicy(csp -> csp.policyDirectives(SecurityHeaders.CONTENT_SECURITY_POLICY))
+                        // permissionsPolicy(Customizer) returns PermissionsPolicyConfig in Spring Security 6.2, so add it as a plain writer
+                        .addHeaderWriter(new StaticHeadersWriter("Permissions-Policy", SecurityHeaders.PERMISSIONS_POLICY))
+                        .crossOriginResourcePolicy(c -> c.policy(
+                                CrossOriginResourcePolicyHeaderWriter.CrossOriginResourcePolicy.SAME_ORIGIN))
+                        .httpStrictTransportSecurity(hsts -> hsts.includeSubDomains(true).maxAgeInSeconds(31_536_000)))
                 .exceptionHandling(e -> e.authenticationEntryPoint(errorWriter).accessDeniedHandler(errorWriter))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
@@ -92,7 +109,9 @@ public class SecurityConfig {
                             .hasAnyRole(Rbac.ALL_ROLES)
                         // Secure default: anything not listed above is refused
                         .anyRequest().denyAll())
-                .addFilterBefore(new JwtAuthenticationFilter(jwtDecoder, errorWriter), UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(new JwtAuthenticationFilter(jwtDecoder, errorWriter), UsernamePasswordAuthenticationFilter.class)
+                // JWT filter runs before UsernamePasswordAuthenticationFilter, so the rate limiter (after it) sees the user
+                .addFilterAfter(new RateLimitFilter(rateLimiter, rateLimitProperties, errorWriter), UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 }

@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 from src.api.dependencies import get_db
 from src.api.security import ANALYTICS_READ, require_roles
 from src.repositories.mortgage_repository import MortgageRepository
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import logging
 
 # RBAC (M6 Task 6.2): every analytics route requires ADMIN, UNDERWRITER or RISK_ANALYST.
@@ -12,6 +12,9 @@ router = APIRouter(prefix="/api/v1/analytics", tags=["analytics"],
                    dependencies=[Depends(require_roles(*ANALYTICS_READ))])
 
 logger = logging.getLogger(__name__)
+
+# Task 6.3: bound the payment-trends scan (OWASP API4).
+MAX_TREND_RANGE_DAYS = 3660
 
 
 def _camel_case(name: str) -> str:
@@ -51,7 +54,9 @@ def get_delinquencies(request: Request, db: Session = Depends(get_db)):
     }
 
 @router.get("/borrowers/{borrower_external_id}/risk-summary")
-def get_borrower_risk(borrower_external_id: str, request: Request, db: Session = Depends(get_db)):
+def get_borrower_risk(request: Request,
+                      borrower_external_id: str = Path(..., pattern=r"^BOR-\d{3}$"),
+                      db: Session = Depends(get_db)):
     correlation_id = getattr(request.state, "correlation_id", None)
     repo = MortgageRepository(db)
     
@@ -70,16 +75,25 @@ def get_borrower_risk(borrower_external_id: str, request: Request, db: Session =
 @router.get("/payment-trends")
 def get_payment_trends(
     request: Request,
-    from_date: str = Query(..., alias="from"),
-    to_date: str = Query(..., alias="to"),
+    from_date: date = Query(..., alias="from"),
+    to_date: date = Query(..., alias="to"),
     db: Session = Depends(get_db)
 ):
     correlation_id = getattr(request.state, "correlation_id", None)
+    # Task 6.3: typed ISO dates (bad input -> 400 VALIDATION_ERROR) and a bounded range.
+    if from_date > to_date:
+        raise HTTPException(status_code=400, detail={"code": "VALIDATION_ERROR",
+                                                     "message": "from must be on or before to",
+                                                     "correlationId": correlation_id})
+    if (to_date - from_date).days > MAX_TREND_RANGE_DAYS:
+        raise HTTPException(status_code=400, detail={"code": "VALIDATION_ERROR",
+                                                     "message": f"date range is limited to {MAX_TREND_RANGE_DAYS} days",
+                                                     "correlationId": correlation_id})
     repo = MortgageRepository(db)
-    trends = repo.get_payment_trends(from_date, to_date)
+    trends = repo.get_payment_trends(from_date.isoformat(), to_date.isoformat())
     return {
-        "from": from_date,
-        "to": to_date,
+        "from": from_date.isoformat(),
+        "to": to_date.isoformat(),
         "buckets": [
             {_camel_case(key): value for key, value in item.items()}
             for item in trends

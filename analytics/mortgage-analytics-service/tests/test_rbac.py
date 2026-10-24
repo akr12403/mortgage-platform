@@ -61,10 +61,11 @@ def test_analytics_read_matrix(path, role):
 @pytest.mark.parametrize("role", ALL_ROLES)
 def test_document_upload_matrix(role):
     # Forbidden roles are rejected before the upload is processed; allowed roles get past auth
-    # (the request is then intentionally incomplete, so validation answers 422).
+    # (the request is then intentionally incomplete, so validation answers 400 VALIDATION_ERROR — Task 6.3).
     response = client.post("/api/v1/documents/upload", headers=auth_header(role))
     if role in DOCUMENT_UPLOAD:
-        assert response.status_code == 422
+        assert response.status_code == 400
+        assert response.json()["code"] == "VALIDATION_ERROR"
     else:
         assert response.status_code == 403
         assert response.json()["code"] == "ACCESS_DENIED"

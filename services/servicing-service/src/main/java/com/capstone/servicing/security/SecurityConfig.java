@@ -13,7 +13,11 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.header.writers.CrossOriginResourcePolicyHeaderWriter;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
+import org.springframework.security.web.header.writers.StaticHeadersWriter;
+
+import java.time.Clock;
 
 /**
  * Stateless JWT validation for servicing-service (resource server only). Tokens are issued by mortgage-service
@@ -26,7 +30,7 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@EnableConfigurationProperties(JwtProperties.class)
+@EnableConfigurationProperties({JwtProperties.class, RateLimitProperties.class})
 public class SecurityConfig {
 
     @Bean
@@ -35,7 +39,13 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtDecoder jwtDecoder, ObjectMapper objectMapper)
+    public RateLimiter rateLimiter() {
+        return new RateLimiter(Clock.systemUTC());
+    }
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtDecoder jwtDecoder, ObjectMapper objectMapper,
+                                                   RateLimiter rateLimiter, RateLimitProperties rateLimitProperties)
             throws Exception {
         SecurityErrorWriter errorWriter = new SecurityErrorWriter(objectMapper);
         http
@@ -44,10 +54,17 @@ public class SecurityConfig {
                 .formLogin(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                // Security headers (Task 6.3); same baseline as mortgage-service. HSTS is sent on HTTPS only.
                 .headers(headers -> headers
                         .contentTypeOptions(c -> {})
                         .frameOptions(f -> f.deny())
-                        .referrerPolicy(r -> r.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER)))
+                        .referrerPolicy(r -> r.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
+                        .contentSecurityPolicy(csp -> csp.policyDirectives(SecurityHeaders.CONTENT_SECURITY_POLICY))
+                        // permissionsPolicy(Customizer) returns PermissionsPolicyConfig in Spring Security 6.2, so add it as a plain writer
+                        .addHeaderWriter(new StaticHeadersWriter("Permissions-Policy", SecurityHeaders.PERMISSIONS_POLICY))
+                        .crossOriginResourcePolicy(c -> c.policy(
+                                CrossOriginResourcePolicyHeaderWriter.CrossOriginResourcePolicy.SAME_ORIGIN))
+                        .httpStrictTransportSecurity(hsts -> hsts.includeSubDomains(true).maxAgeInSeconds(31_536_000)))
                 .exceptionHandling(e -> e.authenticationEntryPoint(errorWriter).accessDeniedHandler(errorWriter))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
@@ -57,7 +74,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/mortgages/*/servicing-events").hasAnyRole(Rbac.SERVICING_WRITE)
                         // Secure default: anything not listed above is refused
                         .anyRequest().denyAll())
-                .addFilterBefore(new JwtAuthenticationFilter(jwtDecoder, errorWriter), UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(new JwtAuthenticationFilter(jwtDecoder, errorWriter), UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(new RateLimitFilter(rateLimiter, rateLimitProperties, errorWriter), UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 }

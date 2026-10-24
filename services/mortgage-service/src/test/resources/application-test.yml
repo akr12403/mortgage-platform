@@ -11,6 +11,11 @@ spring:
 
 app:
   security:
+    # High limits so ordinary tests never trip them; RateLimitTest overrides these with small values.
+    rate-limit:
+      login-per-user-per-minute: 10000
+      login-per-ip-per-minute: 10000
+      writes-per-user-per-minute: 10000
     jwt:
       # Test-only key (never used outside unit tests)
       secret: test-only-jwt-secret-0123456789-abcdefghijklmnop

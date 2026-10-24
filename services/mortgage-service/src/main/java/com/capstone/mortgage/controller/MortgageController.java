@@ -2,6 +2,8 @@ package com.capstone.mortgage.controller;
 
 import com.capstone.mortgage.dto.MortgageCreateRequest;
 import com.capstone.mortgage.dto.MortgageResponse;
+import com.capstone.mortgage.dto.PaymentRequest;
+import com.capstone.mortgage.exception.BusinessRuleException;
 import com.capstone.mortgage.dto.UnderwritingDecisionRequest;
 import com.capstone.mortgage.entity.Mortgage;
 import com.capstone.mortgage.entity.Payment;
@@ -21,6 +23,8 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/mortgages")
 public class MortgageController {
+
+    static final int MAX_PAGE_SIZE = 100;
 
     private final MortgageService mortgageService;
     private final PaymentService paymentService;
@@ -47,6 +51,11 @@ public class MortgageController {
             @RequestParam String borrowerId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
+        // OWASP API4 (unrestricted resource consumption): bound page size
+        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
+            throw BusinessRuleException.badRequest("VALIDATION_ERROR",
+                    "page must be >= 0 and size must be between 1 and " + MAX_PAGE_SIZE);
+        }
         Page<Mortgage> mortgages = mortgageService.getMortgagesByBorrower(borrowerId, PageRequest.of(page, size));
         return ResponseEntity.ok(mortgages.map(MortgageResponse::from));
     }
@@ -79,9 +88,12 @@ public class MortgageController {
     @PostMapping("/{id}/payments")
     public ResponseEntity<Payment> createPayment(
             @PathVariable String id,
-            @Valid @RequestBody Payment payment,
+            @Valid @RequestBody PaymentRequest request,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
-        PaymentService.PaymentOutcome outcome = paymentService.processPayment(id, payment, idempotencyKey);
+        if (idempotencyKey != null && (idempotencyKey.isBlank() || idempotencyKey.length() > 255)) {
+            throw BusinessRuleException.badRequest("VALIDATION_ERROR", "Idempotency-Key must be 1-255 characters");
+        }
+        PaymentService.PaymentOutcome outcome = paymentService.processPayment(id, request.toNewEntity(), idempotencyKey);
         return ResponseEntity.ok()
                 .header("Idempotent-Replayed", Boolean.toString(outcome.replayed()))
                 .body(outcome.payment());

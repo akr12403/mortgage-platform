@@ -54,3 +54,7 @@ app:
       # REQUIRED: same JWT_SECRET as mortgage-service (>= 32 bytes, env only). Startup fails if missing/short.
       secret: ${JWT_SECRET:}
       issuer: ${JWT_ISSUER:capstone-mortgage-auth}
+    # Task 6.3: state-changing requests per authenticated user per minute (429 RATE_LIMITED when exceeded)
+    rate-limit:
+      enabled: ${RATE_LIMIT_ENABLED:true}
+      writes-per-user-per-minute: ${RATE_LIMIT_WRITES_PER_USER:60}
