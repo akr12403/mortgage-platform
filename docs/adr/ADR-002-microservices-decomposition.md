@@ -3,54 +3,65 @@
 | Field | Value |
 | --- | --- |
 | **Status** | Accepted |
-| **Milestone** | M5 (Microservices, Events & Containers)[cite: 10] |
-| **Deciders** | Engineering Team / Architecture Group |
-| **Date** | 2026-10-13 |
+| **Milestone** | M5 — Microservices, Events & Containers |
+| **Deciders** | Engineering team |
+| **Date** | 2026-10-13 (revised 2026-10-20) |
+| **Related** | ADR-001 (service data ownership), `docs/architecture/service-ownership-matrix.md`, `docs/architecture/event-catalog.md` |
 
 ---
 
 ## Context
 
-As the Enterprise Mortgage Platform evolves past Milestone 4, the system requires clear separation of concerns between core loan origination/management (`mortgage-service`) and post-closing operations/servicing history tracking (`servicing-service`). Managing these distinct business domains within a tightly coupled or monolithic structure limits independent scaling, increases blast radiuses during failures, and muddies data ownership boundaries.
-
-We needed a formal architectural strategy to decouple these services while ensuring reliable cross-domain communication, auditability, and adherence to domain-driven design principles.
-
----
+After M4 the platform had two Spring Boot services and a Python analytics service in one repository, all reading and writing one PostgreSQL schema. Lifecycle side effects (servicing history, delinquency snapshots) were written synchronously by whichever service happened to handle the request, so ownership was unclear, a servicing outage could fail a payment, and there was no audit-friendly record of state changes. M5 asks for documented bounded contexts, contract-first APIs, lifecycle events over SNS → SQS with retries and DLQs, and containerized services.
 
 ## Decision
 
-We have formally decided to decompose the platform into **loosely coupled, independently deployable Spring Boot microservices** representing distinct bounded contexts:
+### 1. Three bounded contexts, three deployables
 
-1. **Domain-Driven Service Splitting**:
-   - **`mortgage-service` (Port 8080)** owns borrower accounts, loan applications, mortgage terms, and financial payment transactions.
-   - **`servicing-service` (Port 8081)** owns post-closing audit trails (`servicing_history`) and risk/delinquency evaluation workflows.
+| Service | Bounded context | Owns |
+| --- | --- | --- |
+| `mortgage-service` (8080, Java) | Origination & payments: borrowers, mortgages, loans/underwriting, payments, mortgage status (incl. the 30-day delinquency rule) | `borrower`, `mortgage`, `loan`, `payment`, `idempotency_record`; **sole publisher** of lifecycle events |
+| `servicing-service` (8081, Java) | Servicing record: chronological history and the delinquency snapshot | `servicing_history`, `delinquency`, `event_inbox` |
+| `mortgage-analytics-service` (8000, Python) | Portfolio reporting and documents | `document`; read-only on reporting tables |
 
-2. **Strict Database Isolation**:
-   - Each microservice maintains exclusive ownership of its underlying database tables. Cross-domain database joins or direct writes across service boundaries are strictly prohibited.
+### 2. Shared database, single writer per table
 
-3. **Hybrid Communication Model**:
-   - **Synchronous (REST)**: Used for client-facing transactional queries and direct action triggers (e.g., fetching mortgage details, posting a payment).
-   - **Asynchronous (Event-Driven via AWS SNS/SQS)**: Used for state transition notifications (`MortgageCreated`, `PaymentReceived`, `PaymentMissed`, `LoanDelinquent`) to propagate changes without blocking client threads[cite: 10].
+We keep one PostgreSQL instance for the capstone (cost, local simplicity, M2 seed reuse), but **each table has exactly one writing service** (see the ownership matrix). Cross-context reads are allowed only where listed (servicing reads `mortgage` to resolve `MTG-*` IDs; analytics reads reporting tables). This removes the M4 cross-boundary writes: mortgage-service no longer writes `servicing_history` or `delinquency`; it publishes events and servicing-service projects them.
 
----
+### 3. Communication
+
+- **Synchronous REST** for client commands and queries, versioned under `/api/v1/`. **No service calls another service's API** at runtime.
+- **Asynchronous events** for state changes: `MortgageCreated`, `LoanApproved`, `PaymentReceived`, `PaymentMissed`, `LoanDelinquent`. One SNS topic (`capstone-mortgage-lifecycle-dev`) fans out to one SQS queue per consumer, each with a DLQ (`maxReceiveCount=3`, visibility timeout 30 s). Events are published **after** the producing transaction commits.
+- Consumers are **idempotent** on `eventId` and acknowledge only after their own transaction commits.
+
+### 4. Dependency graph is acyclic
+
+`mortgage-service → (events) → servicing-service, analytics-service`. Consumers never call mortgage-service and never publish to the lifecycle topic. The M4 cycle risk — mortgage-service writing servicing tables while servicing-service read mortgage tables — is removed by decision 2.
+
+## API versioning and breaking-change policy
+
+All HTTP contracts are published per service in `docs/api/{service}-openapi.yaml` as version `v1` and served under `/api/v1/`. **Non-breaking** changes (new optional request fields, new response fields, new endpoints, new error codes) ship in place. **Breaking** changes (removing or renaming fields, changing types, formats or semantics, tightening validation, changing status codes or the error envelope, changing paths) require a new `/api/v2/` path, served alongside `v1` for at least one milestone, with the deprecation announced in the OpenAPI `description` and the PR. Event payloads follow the same rule through `schemaVersion` (see the event catalog's schema evolution policy).
+
+## Consumer-driven expectations (servicing-service on mortgage IDs)
+
+servicing-service relies on these producer guarantees; changing any of them is a breaking change:
+
+1. Every event payload carries `mortgageExternalId` matching `^MTG-[0-9]{4}$` (enforced by the JSON Schemas and by `@Pattern` on `POST /api/v1/mortgages`).
+2. The ID is the business ID, never the internal UUID, and is immutable once created (unique `mortgage.mortgage_external_id`).
+3. `MortgageCreated` for a mortgage is committed before any other event for that mortgage is published (publish-after-commit + creation order). If a consumer still cannot resolve the ID, it does not acknowledge, so SQS retries and finally dead-letters the message.
+4. `correlationId` is always present; for API-triggered events it equals the request's `X-Correlation-Id`.
+
+These expectations are checked by `EventSchemaContractTest` (producer output vs schema) and `EventConsumerServiceTest` (consumer behavior on unknown or invalid IDs).
 
 ## Consequences
 
-### Positive (Benefits)
-- **Independent Scalability**: High-traffic components (such as payment processing and servicing logs) can be scaled independently of origination pipelines.
-- **Fault Isolation**: Failures in the servicing domain do not block core mortgage origination workflows.
-- **Clear Ownership**: Teams or individual developers have unambiguous boundaries over code, APIs, and database persistence layers.
+**Positive**
+- Clear ownership; servicing or analytics outages no longer fail payments (events wait in SQS).
+- An auditable, replayable history of lifecycle changes; DLQs isolate poison messages.
+- Each service builds, tests and ships as its own container.
 
-### Negative / Trade-offs (Mitigations)
-- **Eventual Consistency**: Asynchronous event publishing means downstream consumers (like `servicing-service`) experience slight replication delays, requiring idempotency handling (`event_inbox` deduplication tables).
-- **Operational Complexity**: Managing containerized multi-service deployments, local environment variables, and message broker infrastructure (LocalStack / AWS SNS/SQS) requires additional tooling and runbooks.
-
-## API Breaking Change Policy & Consumer Expectations
-
-### Breaking Change Policy (`v1`)
-All REST API contracts under `/api/v1/` adhere to strict semantic versioning rules. Non-breaking changes (such as adding optional request/response properties) may be introduced in-place. Any breaking modifications—including field removals, renaming required parameters, altering error envelope structures, or changing endpoint URI paths—require introducing a new major version prefix (`/api/v2/`), maintaining backward compatibility for downstream consumers for a deprecation window of at least one release cycle.
-
-### Consumer-Driven Contract: Mortgage ID Expectations
-Downstream services (specifically `servicing-service`) enforce strict consumer expectations regarding identifiers produced by `mortgage-service`:
-- **Mortgage Identifier Format**: Must match the regular expression pattern `MTG-\d{4}` (e.g., `MTG-1001`) as defined in the master engineering standards.
-- **Correlation ID Propagation**: Both services enforce mandatory propagation of the `X-Correlation-Id` UUID header from the incoming HTTP request through to structured logs and asynchronous event headers.
+**Negative / trade-offs**
+- **Eventual consistency**: servicing history and the delinquency snapshot lag the write by roughly one poll interval (~2–5 s locally).
+- **Shared-database coupling remains for reads**. Path to remove it: per-service schemas or databases with read models built from events (candidate for M8/M9).
+- **Publish-after-commit is not an outbox**: if SNS is unavailable right after commit, the event is lost (logged at ERROR with its `eventId`). A transactional outbox table plus relay is the follow-up for production readiness (M10).
+- More moving parts (LocalStack, init container, DLQs) — covered by `docs/operations/messaging-runbook.md`.

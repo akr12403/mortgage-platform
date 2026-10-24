@@ -6,12 +6,12 @@ import java.util.List;
 import java.util.UUID;
 
 @Entity
-@Table(name = "borrowers")
+@Table(name = "borrower")
 public class Borrower {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
 
     @Column(name = "borrower_external_id", unique = true, nullable = false)
     private String borrowerExternalId;
@@ -35,8 +35,8 @@ public class Borrower {
     public Borrower() {}
 
     // Getters and Setters
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
+    public UUID getId() { return id; }
+    public void setId(UUID id) { this.id = id; }
 
     public String getBorrowerExternalId() { return borrowerExternalId; }
     public void setBorrowerExternalId(String borrowerExternalId) { this.borrowerExternalId = borrowerExternalId; }

@@ -1,0 +1,17 @@
+# Accepted dependency vulnerabilities (M6 Task 6.7). Every entry MUST have: reason, evidence, owner, expiry (exp:),
+# and a risk-register / vulnerability-report reference. After the exp: date Trivy stops ignoring the entry, so the
+# gate fails again until the issue is fixed or the acceptance is re-reviewed.
+# Policy (docs/operations/devsecops-baseline.md#exceptions): a scanner-Critical CVE may be accepted ONLY when
+#   (1) there is no open-source fix on the supported framework line, (2) the vendor rates it below High, and
+#   (3) the vulnerable feature is verifiably not used. Otherwise it is fixed, not ignored.
+
+# Spring Framework 6.2.x: open-source fix only in 7.0.9 (Spring Boot 4); 6.2.20 is enterprise-only.
+# Vendor severity MEDIUM. Requires XsltView rendering behind a catch-all /** mapping. Not used: all controllers are
+# @RestController (JSON only), no XsltView, no view resolvers or template engines (grep evidence in VULN-M6-019).
+# Owner: Backend lead. Remove with the Spring Boot 4 migration (backlog B-18, risk R-17).
+CVE-2026-47884 exp:2026-12-31
+
+# Spring Framework 6.2.x: same fix situation as above. Vendor severity LOW. Requires Server-Sent Events carrying view
+# fragments. Not used: no SseEmitter / ResponseBodyEmitter / text/event-stream anywhere (VULN-M6-019).
+# Owner: Backend lead. Remove with B-18.
+CVE-2026-47890 exp:2026-12-31

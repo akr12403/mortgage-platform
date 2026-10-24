@@ -1,15 +1,12 @@
 spring:
   datasource:
-    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/mortgage_intel
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:mortgage_intel}
     username: ${POSTGRES_USER:mortgage_app}
     password: ${POSTGRES_PASSWORD:postgres}
   jpa:
     hibernate:
-      ddl-auto: update
-    show-sql: true
+      ddl-auto: validate
+    show-sql: false
 
 aws:
-  region: us-east-1
-  endpoint-url: http://localhost:4566
-  sns:
-    topic-arn: arn:aws:sns:us-east-1:000000000000:capstone-mortgage-lifecycle-dev
+  endpoint-url: ${AWS_ENDPOINT_URL:http://localhost:4566}

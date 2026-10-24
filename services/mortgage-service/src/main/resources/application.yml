@@ -2,10 +2,17 @@ server:
   port: 8080
 
 spring:
+  application:
+    name: mortgage-service
+  autoconfigure:
+    # Users come from app_user (JWT login); don't create Spring's default in-memory user with a generated password.
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:mortgage_intel}
     username: ${POSTGRES_USER:mortgage_app}
-    password: ${POSTGRES_PASSWORD:postgres}
+    # REQUIRED (DP-GAP-2, M6 Task 6.6): no code default, so a missing secret stops startup instead of
+    # falling back to a guessable password. Locally it comes from .env via docker compose.
+    password: ${POSTGRES_PASSWORD}
     driver-class-name: org.postgresql.Driver
     hikari:
       connection-timeout: 30000
@@ -16,8 +23,8 @@ spring:
       max-lifetime: 1800000
   jpa:
     hibernate:
-      ddl-auto: update
-    show-sql: true
+      ddl-auto: validate
+    show-sql: false
 
 management:
   endpoints:
@@ -31,6 +38,26 @@ management:
 
 aws:
   region: ${AWS_REGION:us-east-1}
-  endpoint-url: ${AWS_ENDPOINT_URL:http://localhost:4566}
+  # Set only for LocalStack (e.g. http://localstack:4566). Leave empty for real AWS.
+  endpoint-url: ${AWS_ENDPOINT_URL:}
   sns:
-    topic-arn: ${SNS_TOPIC_ARN:arn:aws:sns:us-east-1:000000000000:capstone-mortgage-lifecycle-dev}
+    topic-arn: ${SNS_TOPIC_MORTGAGE_EVENTS:arn:aws:sns:us-east-1:000000000000:capstone-mortgage-lifecycle-dev}
+
+app:
+  delinquency:
+    # Daily batch for the 30-day delinquency rule (UTC). Also triggerable via POST /api/v1/delinquency-evaluations.
+    scan-cron: ${DELINQUENCY_SCAN_CRON:0 0 2 * * *}
+  security:
+    jwt:
+      # REQUIRED: >= 32 bytes, from the environment only (openssl rand -base64 48). Startup fails if missing/short.
+      secret: ${JWT_SECRET:}
+      issuer: ${JWT_ISSUER:capstone-mortgage-auth}
+      ttl-seconds: ${JWT_TTL_SECONDS:3600}
+    # Local/dev only: creates the five standards.md seed users with this password (BCrypt-hashed) if missing.
+    seed-users-password: ${AUTH_SEED_PASSWORD:}
+    # Task 6.3 rate limits (per minute). 429 RATE_LIMITED + Retry-After when exceeded.
+    rate-limit:
+      enabled: ${RATE_LIMIT_ENABLED:true}
+      login-per-user-per-minute: ${RATE_LIMIT_LOGIN_PER_USER:10}
+      login-per-ip-per-minute: ${RATE_LIMIT_LOGIN_PER_IP:60}
+      writes-per-user-per-minute: ${RATE_LIMIT_WRITES_PER_USER:60}

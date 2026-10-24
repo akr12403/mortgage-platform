@@ -1,35 +1,35 @@
-# Stage 1: Build / Install dependencies
-FROM python:3.11-slim AS builder
-
-WORKDIR /app
-
-# Install system dependencies if needed
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libpq-dev \
+# ---------- Build stage: compilers + headers live here only ----------
+FROM python:3.14.7-slim AS builder
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential libpq-dev \
     && rm -rf /var/lib/apt/lists/*
+RUN python -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+COPY analytics/mortgage-analytics-service/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
-COPY analytics/mortgage-analytics-service/requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
-
-# Stage 2: Runtime image
-FROM python:3.11-slim
-
+# ---------- Test stage (optional): docker build --target test ... ----------
+FROM builder AS test
+COPY analytics/mortgage-analytics-service/requirements-dev.txt /tmp/requirements-dev.txt
+RUN cd /tmp && pip install --no-cache-dir -r requirements-dev.txt
 WORKDIR /app
+COPY analytics/mortgage-analytics-service/ ./
+CMD ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests"]
 
-# Install runtime libpq for PostgreSQL
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy installed python dependencies from builder
-COPY --from=builder /root/.local /root/.local
-ENV PATH=/root/.local/bin:$PATH
-
-# Copy application source code from the correct path
+# ---------- Runtime stage (default): venv + source only, non-root ----------
+FROM python:3.14.7-slim AS runtime
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libpq5 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system app && useradd --system --gid app --no-create-home app
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+WORKDIR /app
 COPY analytics/mortgage-analytics-service/src/ ./src/
-
+USER app
 EXPOSE 8000
-
-# Run FastAPI via Uvicorn
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
+    CMD python -c "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)"
 CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

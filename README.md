@@ -12,8 +12,8 @@ The Enterprise Mortgage Platform is an event-driven, microservices-based system 
 | **M2** | Agile & Data Foundation | 2 | `docs/milestones/m02.md` | **Completed** |
 | **M3** | Python Analytics | 3 | `docs/milestones/m03.md` | **Completed** |
 | **M4** | Java / Spring Backend | 4–5 | `docs/milestones/m04.md` | **Completed** |
-| **M5** | Microservices & Events | 6 | `docs/milestones/m05.md` | Planned |
-| **M6** | Security Engineering | 7–8 | `docs/milestones/m06.md` | Planned |
+| **M5** | Microservices & Events | 6 | `docs/milestones/m05.md` | **Completed** |
+| **M6** | Security Engineering | 7–8 | `docs/milestones/m06.md` | In progress (Tasks 6.1–6.7 implemented; sign-off pending) |
 | **M7** | AI / RAG Assistant | 9 | `docs/milestones/m07.md` | Planned |
 | **M8** | AWS & Data Platform | 10 | `docs/milestones/m08.md` | Planned |
 | **M9** | CI/CD, Terraform, Observability | 11 | `docs/milestones/m09.md` | Planned |
@@ -88,6 +88,78 @@ Milestone 4 delivers the core Java / Spring Boot microservices backend (`mortgag
   - Actuator health and readiness endpoint configuration.
 - **Automated Testing & Quality Assurance**: 
   - Comprehensive unit and integration test suites (`mvn test`) passing successfully across controllers, services, and database layers.
+
+---
+
+## 🚀 Milestone 5 Status: COMPLETED — MICROSERVICES, EVENTS & CONTAINERS
+
+M5 turns the repo into a documented, event-driven microservice architecture: contract-first APIs, lifecycle events over **SNS → SQS → consumers** with retries and DLQs, and three containerized services with health checks.
+
+| Area | Where |
+| --- | --- |
+| Architecture overview (start here) | [docs/architecture/microservice-architecture.md](docs/architecture/microservice-architecture.md) |
+| Boundaries, ownership, ADR | [application-architecture.md](docs/architecture/application-architecture.md), [service-ownership-matrix.md](docs/architecture/service-ownership-matrix.md), [ADR-002](docs/adr/ADR-002-microservices-decomposition.md) |
+| API contracts (v1) | [mortgage-service](docs/api/mortgage-service-openapi.yaml), [servicing-service](docs/api/servicing-service-openapi.yaml), [analytics](docs/api/mortgage-analytics-service-openapi.yaml), [Postman](docs/api/postman/mortgage-platform-m5.postman_collection.json) |
+| Events | [event-catalog.md](docs/architecture/event-catalog.md), JSON Schemas in [docs/architecture/events/](docs/architecture/events/) |
+| Messaging operations | [messaging-runbook.md](docs/operations/messaging-runbook.md) |
+| Demo & sign-off | [m5-demo-checklist.md](docs/operations/m5-demo-checklist.md), `bash scripts/m5-demo.sh` |
+
+### Verification evidence (local Docker stack, 2026-10-20)
+
+| Check | Result |
+| --- | --- |
+| `mortgage-service` tests (`mvn -B test`) | 41 passed, 0 skipped (includes `EventSchemaContractTest`) |
+| `servicing-service` tests (`mvn -B test`) | 13 passed |
+| Repository contract checks (`tests/contract`) | 20 passed: schemas ↔ examples ↔ catalog ↔ Java producer payloads ↔ OpenAPI |
+| `docker compose up --build -d` | postgres, localstack, mortgage-service, servicing-service, analytics-service **healthy** (Dockerfile `HEALTHCHECK`); `db-migrate`, `messaging-init` exited 0 |
+| `bash scripts/m5-demo.sh` | `MortgageCreated` → `LoanApproved` → `PaymentReceived` (idempotent replay, no duplicate) → `PaymentMissed` + `LoanDelinquent` consumed into servicing history and delinquency snapshot; one correlation ID traced HTTP → producer logs → consumer logs; poison event retried 3× (ERROR logged) then moved to `capstone-mortgage-servicing-dlq-dev` at ~90 s |
+| Error envelope | unknown mortgage → 404 `MORTGAGE_NOT_FOUND` with `correlationId` + `timestamp` |
+
+All M5 Definition of Done items and their evidence: [docs/operations/m5-demo-checklist.md](docs/operations/m5-demo-checklist.md).
+
+### Run the stack
+
+```bash
+cp .env.example .env            # REQUIRED since M6: set JWT_SECRET (openssl rand -base64 48) and AUTH_SEED_PASSWORD
+docker compose up --build -d
+docker compose ps               # postgres, localstack, mortgage-service, servicing-service, analytics-service -> healthy
+curl localhost:8080/actuator/health; curl localhost:8081/actuator/health; curl localhost:8000/health
+bash scripts/m5-demo.sh         # end-to-end demo incl. DLQ (logs in with AUTH_SEED_PASSWORD from .env)
+```
+
+Do **not** use `docker compose down -v` unless you intend to wipe the database volume (it re-seeds on next start).
+
+### Testing
+
+```bash
+# Java (mount the repo root so the event-schema contract test can read docs/)
+for s in mortgage-service servicing-service; do
+  docker run --rm -v "$PWD":/workspace -v "$HOME/.m2":/root/.m2 -w /workspace/services/$s \
+    maven:3.9-eclipse-temurin-17 mvn -B test
+done
+
+# Python analytics (dedicated test stage; runtime image carries no test tooling)
+docker build -f docker/Dockerfile.analytics-service --target test -t capstone/analytics-tests .
+docker run --rm capstone/analytics-tests
+
+# M6 auth + RBAC + OWASP smoke tests against the running stack (stdlib only)
+python3 tests/security/test_auth_smoke.py
+python3 tests/security/test_rbac_smoke.py
+python3 tests/security/test_owasp_smoke.py
+
+# M6 static check: no string-built SQL anywhere (no stack needed)
+python3 tests/security/test_static_sql.py
+
+# M6 CI security gates (same as GitHub Actions / GitLab): secrets, SAST, dependency scanning. Needs Docker.
+sh scripts/security-gates.sh all
+
+# M6 TypeScript secure API consumer (Node 22+; see clients/mortgage-api-consumer/README.md for the Docker variant)
+(cd clients/mortgage-api-consumer && npm install && npm test && \
+  MORTGAGE_API_PASSWORD="$(grep '^AUTH_SEED_PASSWORD=' ../../.env | cut -d= -f2-)" npm run demo)
+
+# Repository contract checks (schemas <-> examples <-> catalog <-> Java producer records)
+docker run --rm -v "$PWD":/w -w /w python:3.14.7-slim sh -c "pip install -q pytest jsonschema && python -m pytest -q tests/contract"
+```
 
 ---
 

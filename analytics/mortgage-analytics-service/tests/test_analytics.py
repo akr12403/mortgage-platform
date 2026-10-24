@@ -39,3 +39,15 @@ def test_payment_trends():
     trends = compute_payment_trends(df_payments, start_date="2026-01-01", end_date="2026-01-31")
     assert len(trends) == 1
     assert trends[0]["posted_amount"] == 1200.0
+
+def test_delinquency_rate_excludes_pending_and_closed():
+    # Canonical rule: DELINQUENT / (ACTIVE + DELINQUENT); PENDING and CLOSED are not in the denominator.
+    df = pd.DataFrame([
+        {"status": "ACTIVE", "outstanding_balance": 100000.0},
+        {"status": "DELINQUENT", "outstanding_balance": 100000.0},
+        {"status": "CLOSED", "outstanding_balance": 0.0},
+        {"status": "PENDING", "outstanding_balance": 50000.0},
+    ])
+    summary = compute_portfolio_summary(df)
+    assert summary["total_mortgages"] == 4
+    assert summary["delinquency_rate"] == 0.5

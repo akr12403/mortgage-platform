@@ -1,0 +1,890 @@
+{
+  "info": {
+    "name": "Capstone Mortgage Platform - M5/M6",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Contract checks for mortgage-service (8080), servicing-service (8081) and analytics (8000). Run top to bottom; servicing/analytics reads are eventually consistent (wait ~5 s after writes). Set demoMtg/demoLoan to unused IDs before each run. M6: run 'Auth > Login' first (set seedPassword to your local AUTH_SEED_PASSWORD; never commit it). The token is stored in accessToken and sent as Bearer auth on every request."
+  },
+  "variable": [
+    {
+      "key": "mortgageBaseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "servicingBaseUrl",
+      "value": "http://localhost:8081"
+    },
+    {
+      "key": "analyticsBaseUrl",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "demoMtg",
+      "value": "MTG-7001"
+    },
+    {
+      "key": "demoLoan",
+      "value": "LOAN-7001"
+    },
+    {
+      "key": "seedPassword",
+      "value": ""
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "mortgage-service health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{mortgageBaseUrl}}/actuator/health",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "servicing-service health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{servicingBaseUrl}}/actuator/health",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "analytics health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{analyticsBaseUrl}}/health",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Auth (M6)",
+      "item": [
+        {
+          "name": "Login (admin) -> stores accessToken",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{mortgageBaseUrl}}/api/v1/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin@capstone.local\",\n  \"password\": \"{{seedPassword}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.test('token issued', () => pm.expect(b.accessToken).to.be.a('string'));",
+                  "pm.collectionVariables.set('accessToken', b.accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login wrong password -> 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{mortgageBaseUrl}}/api/v1/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin@capstone.local\",\n  \"password\": \"definitely-wrong\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "pm.test('INVALID_CREDENTIALS', () => pm.expect(pm.response.json().code).to.eql('INVALID_CREDENTIALS'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "No token -> 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{mortgageBaseUrl}}/api/v1/mortgages/MTG-1001",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tampered token -> 401 (servicing)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer abc.def.ghi"
+              }
+            ],
+            "url": "{{servicingBaseUrl}}/api/v1/mortgages/MTG-1001/servicing-history",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "pm.test('INVALID_TOKEN', () => pm.expect(pm.response.json().code).to.eql('INVALID_TOKEN'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Borrowers",
+      "item": [
+        {
+          "name": "Get BOR-001",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{mortgageBaseUrl}}/api/v1/borrowers/BOR-001"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invalid borrower id -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{mortgageBaseUrl}}/api/v1/borrowers",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"borrowerExternalId\": \"B1\",\n  \"firstName\": \"A\",\n  \"lastName\": \"B\",\n  \"email\": \"a@b.test\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('error envelope', () => { const b = pm.response.json(); ['code','message','correlationId','timestamp'].forEach(k => pm.expect(b).to.have.property(k)); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Mortgage lifecycle",
+      "item": [
+        {
+          "name": "Create mortgage (PENDING loan) -> MortgageCreated",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{mortgageBaseUrl}}/api/v1/mortgages",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mortgageExternalId\": \"{{demoMtg}}\",\n  \"borrowerExternalId\": \"BOR-001\",\n  \"originalAmount\": 320000.0,\n  \"outstandingBalance\": 318500.0,\n  \"originationDate\": \"2025-06-01\",\n  \"loan\": {\n    \"loanExternalId\": \"{{demoLoan}}\",\n    \"interestRate\": 0.065,\n    \"termMonths\": 360,\n    \"underwritingDecision\": \"PENDING\"\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('PENDING', () => pm.expect(pm.response.json().status).to.eql('PENDING'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Duplicate mortgage -> 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{mortgageBaseUrl}}/api/v1/mortgages",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mortgageExternalId\": \"{{demoMtg}}\",\n  \"borrowerExternalId\": \"BOR-001\",\n  \"originalAmount\": 320000.0,\n  \"outstandingBalance\": 318500.0,\n  \"originationDate\": \"2025-06-01\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409', () => pm.response.to.have.status(409));",
+                  "pm.test('error envelope', () => { const b = pm.response.json(); ['code','message','correlationId','timestamp'].forEach(k => pm.expect(b).to.have.property(k)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Approve loan -> LoanApproved",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{mortgageBaseUrl}}/api/v1/mortgages/{{demoMtg}}/underwriting-decision",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"APPROVED\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('ACTIVE', () => pm.expect(pm.response.json().status).to.eql('ACTIVE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get mortgage",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{mortgageBaseUrl}}/api/v1/mortgages/{{demoMtg}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown mortgage -> 404",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{mortgageBaseUrl}}/api/v1/mortgages/MTG-0000"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 404', () => pm.response.to.have.status(404));",
+                  "pm.test('error envelope', () => { const b = pm.response.json(); ['code','message','correlationId','timestamp'].forEach(k => pm.expect(b).to.have.property(k)); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "Post payment -> PaymentReceived",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "pay-{{demoMtg}}-2026-10-01"
+              }
+            ],
+            "url": "{{mortgageBaseUrl}}/api/v1/mortgages/{{demoMtg}}/payments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dueDate\": \"2026-10-01\",\n  \"paidDate\": \"2026-10-02\",\n  \"amount\": 1850.0,\n  \"status\": \"POSTED\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Replay same Idempotency-Key (no new event)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "pay-{{demoMtg}}-2026-10-01"
+              }
+            ],
+            "url": "{{mortgageBaseUrl}}/api/v1/mortgages/{{demoMtg}}/payments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dueDate\": \"2026-10-01\",\n  \"paidDate\": \"2026-10-02\",\n  \"amount\": 1850.0,\n  \"status\": \"POSTED\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('replayed', () => pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql('true'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invalid amount -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{mortgageBaseUrl}}/api/v1/mortgages/{{demoMtg}}/payments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dueDate\": \"2026-10-01\",\n  \"paidDate\": \"2026-10-02\",\n  \"amount\": -50.0,\n  \"status\": \"POSTED\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('error envelope', () => { const b = pm.response.json(); ['code','message','correlationId','timestamp'].forEach(k => pm.expect(b).to.have.property(k)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Failed payment 45+ days overdue -> PaymentMissed + LoanDelinquent",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{mortgageBaseUrl}}/api/v1/mortgages/{{demoMtg}}/payments",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dueDate\": \"2026-09-01\",\n  \"paidDate\": null,\n  \"amount\": 1850.0,\n  \"status\": \"FAILED\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List payments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{mortgageBaseUrl}}/api/v1/mortgages/{{demoMtg}}/payments"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Run delinquency batch",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{mortgageBaseUrl}}/api/v1/delinquency-evaluations"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Servicing (eventually consistent)",
+      "item": [
+        {
+          "name": "Servicing history",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{servicingBaseUrl}}/api/v1/mortgages/{{demoMtg}}/servicing-history"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delinquency snapshot",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{servicingBaseUrl}}/api/v1/mortgages/{{demoMtg}}/delinquency"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Seeded delinquent MTG-1002",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{servicingBaseUrl}}/api/v1/mortgages/MTG-1002/delinquency"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('>=30 dpd', () => pm.expect(pm.response.json().daysPastDue).to.be.at.least(30));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown mortgage -> 404",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{servicingBaseUrl}}/api/v1/mortgages/MTG-0000/servicing-history"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 404', () => pm.response.to.have.status(404));",
+                  "pm.test('error envelope', () => { const b = pm.response.json(); ['code','message','correlationId','timestamp'].forEach(k => pm.expect(b).to.have.property(k)); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Analytics",
+      "item": [
+        {
+          "name": "Portfolio summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{analyticsBaseUrl}}/api/v1/analytics/portfolio-summary"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delinquency",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{analyticsBaseUrl}}/api/v1/analytics/delinquency"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Borrower risk",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{analyticsBaseUrl}}/api/v1/analytics/borrowers/BOR-001/risk-summary"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Payment trends",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{analyticsBaseUrl}}/api/v1/analytics/payment-trends?from=2025-01-01&to=2026-12-31"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Event stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{analyticsBaseUrl}}/api/v1/analytics/event-stats"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  }
+}

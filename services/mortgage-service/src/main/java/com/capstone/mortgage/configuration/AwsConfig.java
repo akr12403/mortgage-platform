@@ -1,19 +1,26 @@
-package com.capstone.mortgage.configuration; // Updated to match your folder name
+package com.capstone.mortgage.configuration;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.sns.SnsClient;
+import software.amazon.awssdk.services.sns.SnsClientBuilder;
 
 import java.net.URI;
 
+/**
+ * SNS client configuration.
+ *
+ * Credentials are never hardcoded: the default AWS provider chain reads them at runtime
+ * (env vars AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, AWS_PROFILE, or an IAM role).
+ * AWS_ENDPOINT_URL is only set for LocalStack; leave it empty to talk to real AWS.
+ */
 @Configuration
 public class AwsConfig {
 
-    @Value("${aws.endpoint-url:http://localhost:4566}")
+    @Value("${aws.endpoint-url:}")
     private String endpointUrl;
 
     @Value("${aws.region:us-east-1}")
@@ -21,11 +28,12 @@ public class AwsConfig {
 
     @Bean
     public SnsClient snsClient() {
-        return SnsClient.builder()
+        SnsClientBuilder builder = SnsClient.builder()
                 .region(Region.of(region))
-                .endpointOverride(URI.create(endpointUrl))
-                .credentialsProvider(StaticCredentialsProvider.create(
-                        AwsBasicCredentials.create("test", "test")))
-                .build();
+                .credentialsProvider(DefaultCredentialsProvider.create());
+        if (endpointUrl != null && !endpointUrl.isBlank()) {
+            builder.endpointOverride(URI.create(endpointUrl));
+        }
+        return builder.build();
     }
 }

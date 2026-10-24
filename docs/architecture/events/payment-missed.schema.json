@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://capstone.local/schemas/events/payment-missed.schema.json",
+  "title": "PaymentMissed",
+  "description": "A due installment has no successful payment (failed/reversed attempt or batch scan). Schema version 1.0.",
+  "type": "object",
+  "required": [
+    "eventId",
+    "eventType",
+    "schemaVersion",
+    "occurredAt",
+    "correlationId",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "UUID v4; consumers dedupe on this"
+    },
+    "eventType": {
+      "const": "PaymentMissed"
+    },
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^1\\.[0-9]+$",
+      "description": "Major 1; minor bumps are additive only"
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC"
+    },
+    "correlationId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "X-Correlation-Id of the triggering request (UUID v4 when generated)"
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "mortgageExternalId",
+        "dueDate",
+        "daysPastDue"
+      ],
+      "additionalProperties": true,
+      "description": "additionalProperties allowed so producers can add optional fields in 1.x",
+      "properties": {
+        "mortgageExternalId": {
+          "type": "string",
+          "pattern": "^MTG-[0-9]{4}$",
+          "description": "Mortgage business ID (never the internal UUID)"
+        },
+        "dueDate": {
+          "type": "string",
+          "format": "date"
+        },
+        "daysPastDue": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}
