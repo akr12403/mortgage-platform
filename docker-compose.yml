@@ -175,9 +175,11 @@ services:
         condition: service_completed_successfully
     # HEALTHCHECK (GET /health) is defined in docker/Dockerfile.analytics-service
 
-  # M7 Task 7.2: one-off ingestion of the knowledge corpus into pgvector (not started by `up`).
+  # M7 one-off commands (not started by `up`). Task 7.2 ingestion, Task 7.3 ask/calibrate:
   #   docker compose run --rm knowledge-ingest                                      # embed + store (needs LLM_API_KEY)
   #   docker compose run --rm knowledge-ingest python -m src.ingest --dry-run --show-chunks   # no API calls
+  #   docker compose run --rm knowledge-ingest python -m src.rag.calibrate          # measure similarity threshold
+  #   docker compose run --rm knowledge-ingest python -m src.rag.ask "What is the delinquency contact timeline?"
   knowledge-ingest:
     build:
       context: .
@@ -194,6 +196,11 @@ services:
       KNOWLEDGE_VERSION: ${KNOWLEDGE_VERSION:-v1}
       RAG_CHUNK_SIZE: ${RAG_CHUNK_SIZE:-512}
       RAG_CHUNK_OVERLAP: ${RAG_CHUNK_OVERLAP:-64}
+      RAG_TOP_K: ${RAG_TOP_K:-5}
+      RAG_SIMILARITY_THRESHOLD: ${RAG_SIMILARITY_THRESHOLD:-0.45}
+      LLM_MODEL: ${LLM_MODEL:-gpt-6-luna}
+      LLM_REASONING_EFFORT: ${LLM_REASONING_EFFORT:-low}
+      LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-2000}
     volumes:
       # Mounted read-only so corpus edits are picked up without rebuilding the image.
       - ./ai/mortgage-knowledge-assistant/knowledge:/app/knowledge:ro
