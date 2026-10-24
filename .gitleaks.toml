@@ -16,6 +16,7 @@ regexes = [
   '''definitely-wrong-1''',   # tests/security/test_owasp_smoke.py: wrong password for the login rate-limit probe
   '''abc\.def\.ghi''',         # scripts/m5-demo.sh: deliberately invalid Bearer token (expects 401)
   '''sk-test-only-not-a-real-key-123456''',  # ai/.../tests/test_embeddings.py: fake OpenAI key for redaction tests
+  '''sk-abcdefghijklmnop1234''',  # ai/.../tests/test_guards.py: fake key that the PII redaction test must mask
 ]
 paths = [
   '''(^|/)node_modules/''',

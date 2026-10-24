@@ -14,9 +14,9 @@ import logging
 import math
 import re
 import time
-import urllib.error
-import urllib.request
 from typing import Callable, Protocol, Sequence
+
+from src.http_client import Transport, TransportError, retry_delay, urllib_transport
 
 log = logging.getLogger(__name__)
 
@@ -30,21 +30,6 @@ class Embedder(Protocol):
     dimensions: int
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]: ...
-
-
-# transport(url, body, headers, timeout) -> (status, response_body, response_headers)
-Transport = Callable[[str, bytes, dict, float], tuple[int, bytes, dict]]
-
-
-def _urllib_transport(url: str, body: bytes, headers: dict, timeout: float) -> tuple[int, bytes, dict]:
-    request = urllib.request.Request(url, data=body, headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - https enforced in config
-            return response.status, response.read(), dict(response.headers)
-    except urllib.error.HTTPError as exc:
-        return exc.code, exc.read(), dict(exc.headers or {})
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise EmbeddingError(f"could not reach the embedding API ({exc.__class__.__name__})") from None
 
 
 class OpenAIEmbedder:
@@ -62,7 +47,7 @@ class OpenAIEmbedder:
         self._batch_size = batch_size
         self._max_retries = max_retries
         self._timeout = timeout
-        self._transport = transport or _urllib_transport
+        self._transport = transport or urllib_transport
         self._sleep = sleep
 
     def __repr__(self) -> str:
@@ -78,25 +63,20 @@ class OpenAIEmbedder:
         body = json.dumps({"model": self.model, "input": batch}).encode("utf-8")
         headers = {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
         for attempt in range(self._max_retries + 1):
-            status, payload, response_headers = self._transport(self._url, body, headers, self._timeout)
+            try:
+                status, payload, response_headers = self._transport(self._url, body, headers, self._timeout)
+            except TransportError as exc:
+                raise EmbeddingError(f"could not reach the embedding API ({exc})") from None
             if status == 200:
                 return self._parse(payload, len(batch))
             if status in self.RETRYABLE and attempt < self._max_retries:
-                delay = self._retry_delay(response_headers, attempt)
+                delay = retry_delay(response_headers, attempt)
                 log.warning("Embedding API returned %s; retrying in %.1fs (attempt %d/%d)",
                             status, delay, attempt + 1, self._max_retries)
                 self._sleep(delay)
                 continue
             raise EmbeddingError(f"embedding API returned HTTP {status}: {self._api_message(payload)}")
         raise EmbeddingError("embedding API retries exhausted")  # pragma: no cover - loop always returns/raises
-
-    @staticmethod
-    def _retry_delay(headers: dict, attempt: int) -> float:
-        retry_after = {k.lower(): v for k, v in headers.items()}.get("retry-after")
-        try:
-            return min(float(retry_after), 60.0) if retry_after else min(2.0 ** attempt, 30.0)
-        except ValueError:
-            return min(2.0 ** attempt, 30.0)
 
     @staticmethod
     def _api_message(payload: bytes) -> str:

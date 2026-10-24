@@ -25,6 +25,18 @@ class StoredChunk:
     embedding_model: str
 
 
+@dataclass(frozen=True)
+class RetrievedChunk:
+    chunk_id: str
+    doc_id: str
+    doc_file: str
+    title: str
+    section: str
+    loan_types: tuple[str, ...]
+    content: str
+    similarity: float  # cosine similarity, 1 = identical direction
+
+
 class VectorStore(Protocol):
     def fingerprints(self, corpus_version: str) -> dict[str, tuple[str, str]]:
         """chunk_id -> (content_sha256, embedding_model) for every stored chunk of one corpus version."""
@@ -34,6 +46,10 @@ class VectorStore(Protocol):
     def delete_except(self, corpus_version: str, keep_chunk_ids: set[str]) -> int: ...
 
     def count(self, corpus_version: str) -> int: ...
+
+    def search(self, query_embedding: Sequence[float], corpus_version: str, embedding_model: str, top_k: int,
+               loan_type: str | None = None) -> list[RetrievedChunk]:
+        """Top-k chunks by cosine similarity, best first. With loan_type, only chunks tagged ALL or that type."""
 
 
 def _vector_literal(vector: Sequence[float]) -> str:
@@ -55,6 +71,17 @@ ON CONFLICT (chunk_id) DO UPDATE SET
 _FINGERPRINTS = "SELECT chunk_id, content_sha256, embedding_model FROM knowledge_chunk WHERE corpus_version = %s"
 _DELETE_EXCEPT = "DELETE FROM knowledge_chunk WHERE corpus_version = %s AND NOT (chunk_id = ANY(%s))"
 _COUNT = "SELECT COUNT(*) FROM knowledge_chunk WHERE corpus_version = %s"
+# Cosine distance (<=>) on the HNSW index. %(loan_type)s NULL means no loan-type filter.
+_SEARCH = """
+SELECT chunk_id, doc_id, doc_file, title, section, loan_types, content,
+       1 - (embedding <=> %(query)s::vector) AS similarity
+FROM knowledge_chunk
+WHERE corpus_version = %(version)s
+  AND embedding_model = %(model)s
+  AND (%(loan_type)s::text IS NULL OR loan_types && ARRAY['ALL', %(loan_type)s::text])
+ORDER BY embedding <=> %(query)s::vector
+LIMIT %(top_k)s
+"""
 _TABLE_EXISTS = "SELECT to_regclass('public.knowledge_chunk') IS NOT NULL"
 _EMBEDDING_DIMS = """
 SELECT a.atttypmod FROM pg_attribute a
@@ -128,6 +155,17 @@ class PgVectorStore:
             cur.execute(_COUNT, (corpus_version,))
             return int(cur.fetchone()[0])
 
+    def search(self, query_embedding, corpus_version, embedding_model, top_k, loan_type=None):
+        params = {"query": _vector_literal(query_embedding), "version": corpus_version, "model": embedding_model,
+                  "loan_type": loan_type, "top_k": top_k}
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(_SEARCH, params)
+                rows = cur.fetchall()
+        finally:
+            self.conn.rollback()  # read-only: end the transaction so the connection is not left idle in one
+        return [RetrievedChunk(r[0], r[1], r[2], r[3], r[4], tuple(r[5]), r[6], float(r[7])) for r in rows]
+
     def commit(self) -> None:
         self.conn.commit()
 
@@ -161,6 +199,24 @@ class InMemoryVectorStore:
 
     def count(self, corpus_version: str) -> int:
         return sum(1 for r in self.rows.values() if r.chunk.corpus_version == corpus_version)
+
+    def search(self, query_embedding, corpus_version, embedding_model, top_k, loan_type=None):
+        def cosine(a, b):
+            dot = sum(x * y for x, y in zip(a, b))
+            na, nb = sum(x * x for x in a) ** 0.5, sum(y * y for y in b) ** 0.5
+            return dot / (na * nb) if na and nb else 0.0
+
+        hits = []
+        for row in self.rows.values():
+            c = row.chunk
+            if c.corpus_version != corpus_version or row.embedding_model != embedding_model:
+                continue
+            if loan_type and not ({"ALL", loan_type} & set(c.loan_types)):
+                continue
+            hits.append(RetrievedChunk(c.chunk_id, c.doc_id, c.doc_file, c.title, c.section, c.loan_types,
+                                       c.content, cosine(query_embedding, row.embedding)))
+        hits.sort(key=lambda h: (-h.similarity, h.chunk_id))
+        return hits[:top_k]
 
     def commit(self) -> None:
         self.commits += 1
