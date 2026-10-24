@@ -129,6 +129,8 @@ bash scripts/m5-demo.sh         # end-to-end demo incl. DLQ (logs in with AUTH_S
 
 Do **not** use `docker compose down -v` unless you intend to wipe the database volume (it re-seeds on next start).
 
+> ⚠️ **Local plain HTTP only.** The compose stack serves HTTP on `localhost` (8080, 8081, 8000) with **synthetic data**, for local development only. Any shared or deployed environment must use **HTTPS**: TLS terminates at the load balancer and is re-encrypted to the services ([encryption in transit](docs/security/security-controls.md#in-transit)). Never point a local stack at real borrower data. The TypeScript client refuses plain HTTP to any non-local host.
+
 ### Testing
 
 ```bash
@@ -183,6 +185,7 @@ M6 secures the platform end to end:
 | Secrets rotation runbook (6.5) | [docs/operations/runbook.md](docs/operations/runbook.md#secrets-rotation) |
 | STRIDE threat model, risk register, vulnerability report, remediation backlog (6.6) | [threat-model.md](docs/security/threat-model.md), [risk-register.md](docs/security/risk-register.md), [vulnerability-report.md](docs/security/vulnerability-report.md), [remediation-backlog.md](docs/security/remediation-backlog.md) |
 | Secure CI gates (6.7) | [docs/operations/devsecops-baseline.md](docs/operations/devsecops-baseline.md), `scripts/security-gates.sh`, `.github/workflows/security-gates.yml`, `.gitlab-ci.yml` |
+| Demo & sign-off (validation + Definition of Done → evidence) | [docs/operations/m6-demo-checklist.md](docs/operations/m6-demo-checklist.md), `bash scripts/m6-demo.sh` |
 
 ### Verification evidence (2026-10-24)
 

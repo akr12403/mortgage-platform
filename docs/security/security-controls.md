@@ -250,6 +250,22 @@ The local exceptions are acceptable only because local data is synthetic and nev
 
 **Column-level encryption:** today, `date_of_birth` is protected by RDS storage encryption plus RBAC (`BORROWER_PII_READ`), not by field-level encryption. Storage encryption protects disks, snapshots and backups, but not a compromised app or a SQL account with SELECT. Before real data is loaded, encrypt `date_of_birth` (and any SSN, if one is ever collected) in the application with KMS envelope encryption (a data key per record, wrapped by `alias/capstone-<env>-pii`), so a DB dump alone exposes no Restricted values. This is a planned item, not built.
 
+### Production WAF rules: request process
+
+AWS WAF in front of the public ALB is part of the M9 deployment. M6 records how rules get requested and changed, so the edge is never edited ad hoc.
+
+**Baseline web ACL (M9, Terraform):**
+- AWS managed rule groups: `AWSManagedRulesCommonRuleSet`, `AWSManagedRulesKnownBadInputsRuleSet`, `AWSManagedRulesSQLiRuleSet` and `AWSManagedRulesAmazonIpReputationList`;
+- a **rate-based rule** on `POST /api/v1/auth/login` per client IP, which complements the in-app limits above (B-09).
+
+**Requesting a new or changed rule:**
+
+1. The service owner opens a ticket stating the purpose, scope (host, path, method), match conditions, expected traffic and false-positive risk, and the rollback.
+2. The **security lead** and **platform lead** review it. A rule that could block legitimate borrower traffic also needs the product owner's agreement.
+3. The rule is added in Terraform and deployed in **COUNT** mode to the test environment for at least 7 days. The sampled requests are checked for false positives.
+4. It is promoted to **BLOCK** through the normal reviewed PR and pipeline, and the change is recorded in the runbook change log.
+5. **Emergency block** (an active attack): the platform lead may apply an IP set or rate rule directly, and it must be back in Terraform with a post-incident review within 2 working days.
+
 ### KMS key plan
 
 | Alias | Protects | Key users (IAM roles) | Key admins |

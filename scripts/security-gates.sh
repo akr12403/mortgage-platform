@@ -38,6 +38,10 @@ run_tool() {
   if command -v "$bin" >/dev/null 2>&1; then
     "$bin" "$@"
   elif command -v docker >/dev/null 2>&1; then
+    if ! docker info >/dev/null 2>&1; then
+      echo "Docker is installed but not running: start Docker Desktop and re-run." >&2
+      return 125
+    fi
     # Run as the calling user so reports written into the repo stay owned by you (and by the CI runner user);
     # tool caches (trivy DB, semgrep rules) persist under the git-ignored reports/.cache/.
     mkdir -p "$REPORTS/../.cache"
@@ -55,28 +59,33 @@ run_tool() {
 }
 
 # ---------------------------------------------------------------------------------------------------------------
+# Distinct exit codes: a finding is never confused with a scanner/runtime error (both still fail the gate).
+GITLEAKS_LEAK_RC=3
+
 gate_secrets() {
   log "Secret detection: gitleaks, full git history (any finding fails)"
-  if run_tool gitleaks "$GITLEAKS_IMAGE" git --no-banner --config .gitleaks.toml --redact --verbose \
-      --report-format json --report-path "$REPORTS/gitleaks.json" --exit-code 1 . ; then
-    pass "no secrets in git history"
-  else
-    fail "secrets found (values redacted above; details in $REPORTS/gitleaks.json). Rotate first, then remove: docs/operations/runbook.md"
-    return 1
-  fi
+  rc=0
+  run_tool gitleaks "$GITLEAKS_IMAGE" git --no-banner --config .gitleaks.toml --redact --verbose \
+    --report-format json --report-path "$REPORTS/gitleaks.json" --exit-code $GITLEAKS_LEAK_RC . || rc=$?
+  case $rc in
+    0) pass "no secrets in git history" ;;
+    "$GITLEAKS_LEAK_RC") fail "secrets found (values redacted above; details in $REPORTS/gitleaks.json). Rotate first, then remove: docs/operations/runbook.md"; return 1 ;;
+    *) fail "secret scan could not run (exit $rc): not a finding, but the gate fails closed"; return 1 ;;
+  esac
 }
 
 gate_sast() {
   log "SAST: semgrep (OWASP Top 10 + Java/Python/TypeScript registry rules + security/semgrep/capstone-rules.yml)"
-  if run_tool semgrep "$SEMGREP_IMAGE" scan --metrics=off --disable-version-check \
-      --config p/owasp-top-ten --config p/java --config p/python --config p/typescript \
-      --config security/semgrep/capstone-rules.yml \
-      --severity ERROR --error --json-output "$REPORTS/semgrep.json" . ; then
-    pass "no ERROR-severity SAST findings"
-  else
-    fail "SAST findings at ERROR severity (listed above; JSON in $REPORTS/semgrep.json)"
-    return 1
-  fi
+  rc=0
+  run_tool semgrep "$SEMGREP_IMAGE" scan --metrics=off --disable-version-check \
+    --config p/owasp-top-ten --config p/java --config p/python --config p/typescript \
+    --config security/semgrep/capstone-rules.yml \
+    --severity ERROR --error --json-output "$REPORTS/semgrep.json" . || rc=$?
+  case $rc in
+    0) pass "no ERROR-severity SAST findings" ;;
+    1) fail "SAST findings at ERROR severity (listed above; JSON in $REPORTS/semgrep.json)"; return 1 ;;
+    *) fail "SAST scan could not run (exit $rc): not a finding, but the gate fails closed"; return 1 ;;
+  esac
 }
 
 # Trivy: report HIGH+CRITICAL, fail only on CRITICAL with a fix available (team policy, R-16).
@@ -190,11 +199,15 @@ gate_selftest() {
   fake=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 40)   # random, not a real credential
   ( cd "$tmp" && git init -q && git config user.email selftest@example.invalid && git config user.name selftest \
     && printf 'api_key = "%s"\n' "$fake" > leaked-config.txt && git add . && git commit -qm "planted fake secret" )
-  if (cd "$ROOT" && run_tool gitleaks "$GITLEAKS_IMAGE" git --no-banner --redact \
-        --exit-code 1 "$REPORTS/selftest-repo" >/dev/null 2>&1); then
-    rm -rf "$tmp"; fail "secret gate did NOT detect the planted secret"; return 1
-  fi
-  rm -rf "$tmp"; pass "secret gate blocked the planted secret (as required by the M6 validation)"
+  rc=0
+  (cd "$ROOT" && run_tool gitleaks "$GITLEAKS_IMAGE" git --no-banner --redact \
+        --exit-code $GITLEAKS_LEAK_RC "$REPORTS/selftest-repo" >/dev/null 2>&1) || rc=$?
+  rm -rf "$tmp"
+  case $rc in
+    "$GITLEAKS_LEAK_RC") pass "secret gate blocked the planted secret (as required by the M6 validation)" ;;
+    0) fail "secret gate did NOT detect the planted secret"; return 1 ;;
+    *) fail "self-test could not run (exit $rc), e.g. Docker not running"; return 1 ;;
+  esac
 }
 
 # ---------------------------------------------------------------------------------------------------------------
