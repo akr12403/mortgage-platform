@@ -1,7 +1,14 @@
+import os
 import sys
 from pathlib import Path
 
 import pytest
+
+# Test-only values (allowlisted in .gitleaks.toml); set before any service module reads the environment.
+TEST_JWT_SECRET = "test-only-jwt-secret-0123456789-abcdefghijklmnop"
+os.environ.setdefault("JWT_SECRET", TEST_JWT_SECRET)
+os.environ.setdefault("JWT_ISSUER", "capstone-mortgage-auth")
+os.environ.setdefault("POSTGRES_PASSWORD", "test-only-db-password")  # the database is faked in tests
 
 SERVICE_ROOT = Path(__file__).resolve().parent.parent
 if str(SERVICE_ROOT) not in sys.path:

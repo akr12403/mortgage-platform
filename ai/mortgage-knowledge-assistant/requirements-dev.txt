@@ -1,3 +1,4 @@
 # Test/dev tooling — NOT installed in the runtime image
 -r requirements.txt
 pytest
+httpx

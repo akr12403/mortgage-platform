@@ -1,0 +1,185 @@
+openapi: 3.0.3
+info:
+  title: mortgage-knowledge-assistant API
+  version: v1
+  description: |
+    Grounded Q&A over the controlled policy knowledge base (M7). Answers come only from retrieved passages of
+    ai/mortgage-knowledge-assistant/knowledge/<version>/ and carry citations to real chunk ids; questions the
+    corpus cannot answer return "insufficient context" (empty citations, confidence below the threshold).
+    FastAPI also serves its generated spec at /openapi.json; this file is the reviewed contract.
+    Every operation except /health and /health/ready requires `Authorization: Bearer <jwt>` issued by
+    mortgage-service POST /api/v1/auth/login, plus one of the roles in `x-roles`.
+    401 UNAUTHORIZED / INVALID_TOKEN, 403 ACCESS_DENIED. Answers are advisory: see docs/ai/governance.md.
+servers:
+  - url: http://localhost:8001
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      summary: Liveness (used by the container HEALTHCHECK)
+      operationId: health
+      security: []
+      responses:
+        '200':
+          description: UP
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: UP }
+                  service: { type: string, example: mortgage-knowledge-assistant }
+  /health/ready:
+    get:
+      summary: Readiness - database reachable, corpus loaded, AI provider configured
+      operationId: ready
+      security: []
+      responses:
+        '200':
+          description: Ready
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Readiness' }
+        '503':
+          description: Not ready (same body, status DOWN)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Readiness' }
+  /api/v1/assistant/ask:
+    post:
+      summary: Ask a policy question; grounded answer with citations
+      description: |
+        Retrieval: top-k (5) passages by cosine similarity, optionally only those tagged ALL or `loanType`.
+        If the best passage scores below the similarity threshold (0.45, calibrated), the answer is
+        "insufficient context" and no LLM call is made. Citations are verified against the passages given to
+        the model. Personal data in the question is redacted before embedding, the LLM and logs.
+        `requiresHumanApproval` is true when the question asks to act on a specific case (underwriting
+        decision or exception, foreclosure, fee/balance change, forbearance/modification, status correction).
+        Limited to 20 requests per user per minute (429 RATE_LIMITED with Retry-After).
+      operationId: ask
+      x-roles: [ADMIN, UNDERWRITER, SERVICING_AGENT, RISK_ANALYST, SUPPORT]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AskRequest' }
+            example:
+              question: What happens when a payment is 30 days late?
+              mortgageExternalId: MTG-1002
+              loanType: CONVENTIONAL
+      responses:
+        '200':
+          description: Answer (grounded) or insufficient context
+          headers:
+            X-Correlation-Id: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AskResponse' }
+              examples:
+                grounded:
+                  value:
+                    answer: After 30 calendar days past due, the mortgage is marked DELINQUENT with severity MODERATE ...
+                    citations:
+                      - { documentId: delinquency-playbook.md, section: Definition, chunkId: 'delinquency-playbook:v1:c-02' }
+                    confidence: 0.55
+                    requiresHumanApproval: false
+                    correlationId: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+                insufficientContext:
+                  value:
+                    answer: "I can't answer that reliably: the approved knowledge base does not contain information on this question. Please check the source policy or ask its owner."
+                    citations: []
+                    confidence: 0.07
+                    requiresHumanApproval: false
+                    correlationId: cee57287-bc3a-49c1-b449-df8b8aebd0d2
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+        '500': { $ref: '#/components/responses/Error' }
+        '503':
+          description: AI_PROVIDER_NOT_CONFIGURED, AI_PROVIDER_UNAVAILABLE or KNOWLEDGE_STORE_UNAVAILABLE
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      description: Reused if 8-64 characters of [A-Za-z0-9._-]; otherwise a new UUID is generated. Echoed in the response.
+      schema: { type: string }
+  responses:
+    Error:
+      description: Error envelope (guides/standards.md)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: Missing (UNAUTHORIZED) or invalid/expired (INVALID_TOKEN) bearer token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Forbidden:
+      description: Valid token without an allowed role (ACCESS_DENIED)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+  schemas:
+    AskRequest:
+      type: object
+      additionalProperties: false
+      required: [question]
+      properties:
+        question: { type: string, minLength: 1, maxLength: 1000, description: Do not include borrower personal data }
+        mortgageExternalId: { type: string, pattern: '^MTG-\d{4,10}$', description: Used only for approval rules and logs }
+        loanType: { type: string, enum: [CONVENTIONAL, FHA, VA] }
+    Citation:
+      type: object
+      required: [documentId, section, chunkId]
+      properties:
+        documentId: { type: string, example: delinquency-playbook.md }
+        section: { type: string, example: Timeline }
+        chunkId: { type: string, example: 'delinquency-playbook:v1:c-05' }
+    AskResponse:
+      type: object
+      required: [answer, citations, confidence, requiresHumanApproval, correlationId]
+      properties:
+        answer: { type: string }
+        citations: { type: array, items: { $ref: '#/components/schemas/Citation' } }
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Best retrieval similarity; below the threshold only for insufficient context
+        requiresHumanApproval: { type: boolean }
+        correlationId: { type: string }
+    Readiness:
+      type: object
+      properties:
+        status: { type: string, enum: [UP, DOWN] }
+        service: { type: string }
+        corpusVersion: { type: string, example: v1 }
+        checks:
+          type: object
+          properties:
+            aiProviderConfigured: { type: boolean }
+            database: { type: string, enum: [UP, DOWN] }
+            knowledgeChunks: { type: integer, example: 51 }
+    ErrorResponse:
+      type: object
+      required: [code, message, correlationId, timestamp]
+      properties:
+        code: { type: string, example: VALIDATION_ERROR }
+        message: { type: string }
+        correlationId: { type: string }
+        timestamp: { type: string, format: date-time }

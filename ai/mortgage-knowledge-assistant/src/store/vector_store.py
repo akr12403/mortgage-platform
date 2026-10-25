@@ -151,19 +151,27 @@ class PgVectorStore:
             return cur.rowcount
 
     def count(self, corpus_version: str) -> int:
-        with self.conn.cursor() as cur:
-            cur.execute(_COUNT, (corpus_version,))
-            return int(cur.fetchone()[0])
+        import psycopg2
+
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(_COUNT, (corpus_version,))
+                return int(cur.fetchone()[0])
+        except psycopg2.Error as exc:
+            raise VectorStoreError(f"count failed ({exc.__class__.__name__})") from None
 
     def search(self, query_embedding, corpus_version, embedding_model, top_k, loan_type=None):
         params = {"query": _vector_literal(query_embedding), "version": corpus_version, "model": embedding_model,
                   "loan_type": loan_type, "top_k": top_k}
+        import psycopg2
+
         try:
             with self.conn.cursor() as cur:
                 cur.execute(_SEARCH, params)
                 rows = cur.fetchall()
-        finally:
             self.conn.rollback()  # read-only: end the transaction so the connection is not left idle in one
+        except psycopg2.Error as exc:
+            raise VectorStoreError(f"vector search failed ({exc.__class__.__name__})") from None
         return [RetrievedChunk(r[0], r[1], r[2], r[3], r[4], tuple(r[5]), r[6], float(r[7])) for r in rows]
 
     def commit(self) -> None:

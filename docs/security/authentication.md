@@ -34,6 +34,7 @@ client ──GET/POST … Authorization: Bearer <jwt>──> mortgage-service :8
 | mortgage-service | `GET /actuator/health/**`, `GET /actuator/info`, `POST /api/v1/auth/login` | valid Bearer token required |
 | servicing-service | `GET /actuator/health/**`, `GET /actuator/info` | valid Bearer token required |
 | analytics-service | `GET /health` | valid Bearer token required (PyJWT, HS256 pinned; added in Task 6.2) |
+| knowledge-assistant (M7) | `GET /health`, `GET /health/ready` | valid Bearer token required (same PyJWT validation; `POST /api/v1/assistant/ask`) |
 
 Every `/api/v1/mortgages/**` mutation requires an authenticated user, as the M6 checklist demands. Per-role rules (Task 6.2) are in [security-controls.md](./security-controls.md); routes without a rule are denied by default.
 
