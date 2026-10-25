@@ -9,7 +9,7 @@ RAG assistant that answers mortgage policy questions from a controlled knowledge
 | 7.1 | Knowledge base v1 (5 synthetic documents) | [`knowledge/`](knowledge/README.md) |
 | 7.2 | Ingestion pipeline: load → chunk → embed → pgvector | `src/ingest/`, `src/embeddings.py`, `src/store/`, `database/migrations/005_knowledge_chunk.sql` |
 | 7.3 | Retrieval, grounded generation with citations, insufficient-context path, threshold calibration | `src/rag/` |
-| 7.4 | `POST /api/v1/assistant/ask` (JWT-protected), health, correlation IDs | to come |
+| 7.4 | FastAPI service: `POST /api/v1/assistant/ask` (M6 JWT), `/health`, `/health/ready`, correlation IDs, rate limit | `src/api/`, [`docs/api/mortgage-knowledge-assistant-openapi.yaml`](../../docs/api/mortgage-knowledge-assistant-openapi.yaml) |
 | 7.5 | Prompt library and governance | `docs/ai/` (to come) |
 | 7.6 | Incident summarization | to come |
 
@@ -88,7 +88,7 @@ Exit codes: `0` success, `2` configuration or corpus error (for example a missin
 cd ai/mortgage-knowledge-assistant
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
-set -a; . ../../.env; set +a          # loads POSTGRES_* and LLM_* (POSTGRES_HOST=localhost)
+export $(grep -E '^(POSTGRES|LLM|EMBEDDING|RAG|KNOWLEDGE)_[A-Z_]*=' ../../.env | xargs)   # POSTGRES_HOST=localhost
 python -m src.ingest --dry-run --show-chunks
 python -m src.ingest
 ```
@@ -156,6 +156,51 @@ The threshold gates the **question** (is the best match good enough?), as calibr
 
 Margins are about 0.08 on each side. Re-run the calibration after any corpus or embedding-model change and update this table; a question that falls between the two groups is still caught by controls 3 and 4 (the model must declare the context sufficient and cite a real chunk).
 
+## HTTP API (Task 7.4)
+
+| Endpoint | Auth | Purpose |
+| --- | --- | --- |
+| `GET /health` | public | Liveness; the container `HEALTHCHECK` |
+| `GET /health/ready` | public | Readiness: database reachable, corpus chunks loaded, AI provider configured (503 `DOWN` otherwise) |
+| `POST /api/v1/assistant/ask` | Bearer JWT from mortgage-service login; any of the 5 staff roles | Grounded answer with citations (contract in the OpenAPI file) |
+
+**Request** `{"question": "...", "mortgageExternalId": "MTG-1002", "loanType": "CONVENTIONAL"}`: `question` 1–1000 characters; `mortgageExternalId` optional (`MTG-` + digits, used only for approval rules and logs, never sent to the LLM); `loanType` optional (`CONVENTIONAL`, `FHA`, `VA`); unknown fields are rejected.
+**Response** `{answer, citations[{documentId, section, chunkId}], confidence, requiresHumanApproval, correlationId}`.
+
+| Status | `code` | When |
+| --- | --- | --- |
+| 400 | `VALIDATION_ERROR` | Empty, blank or too long question; bad `loanType` / `mortgageExternalId`; unknown field |
+| 401 | `UNAUTHORIZED` / `INVALID_TOKEN` | No token; bad signature, expired, wrong issuer, `alg:none` (checked before validation) |
+| 403 | `ACCESS_DENIED` | Token without a staff role |
+| 413 | `PAYLOAD_TOO_LARGE` | Body over 16 KB |
+| 429 | `RATE_LIMITED` | Over 20 questions per user per minute (`RATE_LIMIT_ASSISTANT_PER_USER`); `Retry-After` header |
+| 503 | `AI_PROVIDER_NOT_CONFIGURED` / `AI_PROVIDER_UNAVAILABLE` / `KNOWLEDGE_STORE_UNAVAILABLE` | No `LLM_API_KEY`; OpenAI error or timeout; database down |
+
+- **Correlation IDs:** every response has `X-Correlation-Id`; a caller's value is reused if it is 8–64 safe characters (`[A-Za-z0-9._-]`), otherwise a new UUID is generated so log lines cannot be forged. The id appears in every log line for the request and in the response body.
+- **Audit log:** one line per question with user, roles, loan type, mortgage id, question length, redacted PII types, citations, confidence, approval flag and reasons, model and prompt version. The question text itself is never logged.
+- **Security headers and error envelope** are the same as the analytics service.
+
+**Architecture: direct call, no BFF (handbook optional step).** Clients call the assistant on :8001 with the same JWT they use for the other services; it validates the token itself (shared `JWT_SECRET`, HS256 pinned). A backend-for-frontend route through mortgage-service would add a synchronous Java→Python hop, which `docs/architecture/resilience.md` says must then get a circuit breaker and time limiter, for no extra security: the assistant never reads borrower tables. Revisit when a UI exists or when the assistant needs live loan data (it would then call mortgage-service with the caller's token, not read its tables).
+
+### Run it
+
+```bash
+docker compose up -d --build knowledge-assistant
+curl -s localhost:8001/health/ready
+```
+
+`/health/ready` should show `"knowledgeChunks": 51` and `"aiProviderConfigured": true`. Then log in and ask; the sign-in token stays in a shell variable and is never printed:
+
+```bash
+SEED=$(grep '^AUTH_SEED_PASSWORD=' .env | cut -d= -f2-)
+TOKEN=$(SEED="$SEED" python3 -c 'import json,os; print(json.dumps({"username":"servicing@capstone.local","password":os.environ["SEED"]}))' \
+  | curl -s localhost:8080/api/v1/auth/login -H 'Content-Type: application/json' -d @- \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')
+curl -s localhost:8001/api/v1/assistant/ask -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"question":"What is the delinquency contact timeline?"}' | python3 -m json.tool
+docker logs knowledge-assistant 2>&1 | grep " ask user=" | tail -1
+```
+
 ## Tests
 
 ```bash
@@ -163,7 +208,7 @@ cd ai/mortgage-knowledge-assistant && python -m pytest -q tests
 # or, matching CI:  docker build -f docker/Dockerfile.knowledge-assistant --target test -t ka-test . && docker run --rm ka-test
 ```
 
-The tests use a fake embedder and an in-memory store, so they need no API key, network or database. Task 7.3 tests use a scripted LLM, so they make no API calls; they cover every hallucination control above, redaction, approval rules and the chat client's request format. The tests also check the real `knowledge/v1` corpus: the five required documents, unique chunk IDs, the 30-day rule and severity bands, loan-type sections, and no personal data or keys.
+The tests use a fake embedder and an in-memory store, so they need no API key, network or database. Task 7.3 tests use a scripted LLM, so they make no API calls; Task 7.4 tests (`test_api.py`) drive the HTTP API end to end through FastAPI's test client with an in-memory store and cover auth, every role, validation, error codes, correlation ids, rate limiting, readiness and the audit log; they cover every hallucination control above, redaction, approval rules and the chat client's request format. The tests also check the real `knowledge/v1` corpus: the five required documents, unique chunk IDs, the 30-day rule and severity bands, loan-type sections, and no personal data or keys.
 
 ## Troubleshooting
 

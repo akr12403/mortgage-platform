@@ -1,5 +1,6 @@
 # mortgage-knowledge-assistant (M7). Same layout as the analytics image: build / test / runtime stages.
-# Task 7.2: the image runs the ingestion command. Task 7.4 adds the FastAPI app on port 8001.
+# Default command: the FastAPI app on port 8001 (Task 7.4). The same image runs the one-off commands
+# (python -m src.ingest, src.rag.ask, src.rag.calibrate) through the knowledge-ingest compose service.
 
 # ---------- Build stage: compilers + headers live here only ----------
 FROM python:3.14.7-slim AS builder
@@ -40,4 +41,7 @@ COPY ai/mortgage-knowledge-assistant/knowledge/ ./knowledge/
 # Read-only for the app user whatever the host file modes were (a 0600 checkout would otherwise be unreadable).
 RUN chmod -R a+rX,go-w /app /opt/tiktoken
 USER app
-CMD ["python", "-m", "src.ingest"]
+EXPOSE 8001
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
+    CMD python -c "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:8001/health', timeout=3).status == 200 else 1)"
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8001"]
