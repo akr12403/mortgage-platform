@@ -52,8 +52,9 @@ Role codes come from `guides/standards.md` and travel in the JWT `roles` claim.
 | Endpoint | ADMIN | UNDERWRITER | SERVICING_AGENT | RISK_ANALYST | SUPPORT | Group |
 | --- | :-: | :-: | :-: | :-: | :-: | --- |
 | `POST /api/v1/assistant/ask` | ✓ | ✓ | ✓ | ✓ | ✓ | ASSISTANT_ASK |
+| `POST /api/v1/assistant/summarize-incident` (Task 7.6) | ✓ | ✗ | ✗ | ✗ | ✗ | INCIDENT_SUMMARIZE |
 
-Every staff role may ask: the corpus is synthetic **Internal** policy text and the endpoint returns no borrower data. Same JWT validation as analytics (`src/api/security.py`, HS256 pinned, issuer and expiry required); tests in `ai/mortgage-knowledge-assistant/tests/test_api.py`. Answers are advisory; case decisions are flagged `requiresHumanApproval` (`docs/ai/governance.md`).
+Every staff role may ask: the corpus is synthetic **Internal** policy text and the endpoint returns no borrower data. Incident summaries read operational logs, so only the on-call ADMIN may request them. Same JWT validation as analytics (`src/api/security.py`, HS256 pinned, issuer and expiry required); tests in `ai/mortgage-knowledge-assistant/tests/test_api.py`. Answers are advisory; case decisions are flagged `requiresHumanApproval` (`docs/ai/governance.md`).
 
 Health endpoints (`/actuator/health`, `/actuator/info`, `/health`, and the assistant's `/health/ready`) stay public for container health checks.
 
@@ -145,7 +146,7 @@ Review of all three services against the [OWASP API Security Top 10 (2023)](http
 | Login per client IP | 60 | `RateLimitFilter` (mortgage-service) | `RATE_LIMIT_LOGIN_PER_IP` |
 | Writes (POST/PUT/PATCH/DELETE) per user | 60 | `RateLimitFilter` (both Java services) | `RATE_LIMIT_WRITES_PER_USER` |
 | Document uploads per user | 20 | `documents.py` | `RATE_LIMIT_UPLOADS_PER_USER` |
-| Assistant questions per user (each may cost an LLM call) | 20 | `src/api/main.py` (knowledge assistant) | `RATE_LIMIT_ASSISTANT_PER_USER` |
+| Assistant questions / incident summaries per user (each may cost an LLM call; separate counters) | 20 | `src/api/main.py` (knowledge assistant) | `RATE_LIMIT_ASSISTANT_PER_USER` |
 
 Over the limit the response is **429 `RATE_LIMITED`** in the shared envelope with a `Retry-After` header. The client IP is the socket address; `X-Forwarded-For` is deliberately **not** trusted, because a client could forge it to dodge the per-IP limit.
 

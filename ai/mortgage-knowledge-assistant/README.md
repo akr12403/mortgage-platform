@@ -2,7 +2,7 @@
 
 RAG assistant that answers mortgage policy questions from a controlled knowledge base, with citations (Milestone 7). Port `8001`, health `GET /health`.
 
-**Status:** in progress.
+**Status:** Tasks 7.1–7.6 implemented.
 
 | Task | What | Where |
 | --- | --- | --- |
@@ -11,7 +11,7 @@ RAG assistant that answers mortgage policy questions from a controlled knowledge
 | 7.3 | Retrieval, grounded generation with citations, insufficient-context path, threshold calibration | `src/rag/` |
 | 7.4 | FastAPI service: `POST /api/v1/assistant/ask` (M6 JWT), `/health`, `/health/ready`, correlation IDs, rate limit | `src/api/`, [`docs/api/mortgage-knowledge-assistant-openapi.yaml`](../../docs/api/mortgage-knowledge-assistant-openapi.yaml) |
 | 7.5 | Prompt library (6 versioned templates) and governance (human approval, logging, PII, hallucination controls) | [`docs/ai/prompt-library.md`](../../docs/ai/prompt-library.md), [`docs/ai/governance.md`](../../docs/ai/governance.md) |
-| 7.6 | Incident summarization | to come |
+| 7.6 | Incident summarization with runbook links and the human-approval flag | `src/ops/`, [`incidents/`](incidents/), `POST /api/v1/assistant/summarize-incident` |
 
 ## Configuration
 
@@ -199,6 +199,42 @@ TOKEN=$(SEED="$SEED" python3 -c 'import json,os; print(json.dumps({"username":"s
 curl -s localhost:8001/api/v1/assistant/ask -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"question":"What is the delinquency contact timeline?"}' | python3 -m json.tool
 docker logs knowledge-assistant 2>&1 | grep " ask user=" | tail -1
+```
+
+## Incident summarization (Task 7.6)
+
+```text
+incident text ─redact PII + secrets─▶ LLM (prompt incident-summary-v1, strict JSON, fixed runbook catalogue)
+   ─▶ validate fields, drop invented runbooks ─▶ approval rules in code ─▶ summary + runbook links
+```
+
+- **Endpoint:** `POST /api/v1/assistant/summarize-incident`, **ADMIN only**, body `{"incidentText": "...", "incidentId": "INC-2026-0042"}` (20–20,000 characters; body ≤ 64 KB). Returns `{incidentId, title, severity, summary, impact, timeline[{time, event}], suspectedCause, affectedServices, recommendedActions (≤ 5), runbooks[{id, title, link}], confidence, requiresHumanApproval, approvalReasons, openQuestions, correlationId}`.
+- **Runbooks** come only from the catalogue in `src/ops/runbooks.py` (9 real sections of `docs/operations/` and `docs/ai/governance.md`; a test checks every link resolves to a real heading).
+- **`requiresHumanApproval`** is decided by code: `LOW_CONFIDENCE` (< 0.7), `SEV1`, `SEVERITY_UNKNOWN`, `NO_RUNBOOK_MATCH`, `INVENTED_RUNBOOK`, `SENSITIVE_DATA_IN_LOG`. See `docs/ai/governance.md`.
+- **Nothing is executed:** the summary proposes actions; the administrator acts.
+- **Sample incidents** (synthetic): `incidents/INC-2026-0042-servicing-dlq-backlog.txt` (well evidenced DLQ backlog after a producer schema change) and `incidents/INC-2026-0043-vague-report.txt` (second-hand report with no logs, to show the approval flag).
+
+### Try it
+
+```bash
+docker compose run --rm knowledge-ingest python -m src.ops.summarize_incident incidents/INC-2026-0042-servicing-dlq-backlog.txt
+docker compose run --rm knowledge-ingest python -m src.ops.summarize_incident incidents/INC-2026-0043-vague-report.txt
+```
+
+**Recorded results** (2026-10-25, `gpt-6-luna`, prompt `incident-summary-v1`):
+
+| Incident | Severity | Confidence | Runbooks | `requiresHumanApproval` | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `INC-2026-0042` DLQ backlog | `SEV2` | 0.98 | `messaging-dlq`, `messaging-everyday-checks` | `false` | Cause: producer started sending `schemaVersion` 2.0, servicing-service supports 1.x; 12-event timeline with the log's timestamps; actions say inspect, escalate, replay only under an approved plan |
+| `INC-2026-0043` vague report | `UNKNOWN` | 0.30 (CLI), 0.28 (HTTP) | none | `true` (`LOW_CONFIDENCE`, `SEVERITY_UNKNOWN`, `NO_RUNBOOK_MATCH`) | Times kept as written ("this afternoon"); actions are information-gathering only |
+
+Over HTTP, log in as `admin@capstone.local` (same login as in "Run it" above) and post the file:
+
+```bash
+python3 -c 'import json,sys; print(json.dumps({"incidentId":"INC-2026-0042","incidentText":open(sys.argv[1]).read()}))' \
+  ai/mortgage-knowledge-assistant/incidents/INC-2026-0042-servicing-dlq-backlog.txt \
+  | curl -s localhost:8001/api/v1/assistant/summarize-incident -H "Authorization: Bearer $ADMIN_TOKEN" \
+      -H 'Content-Type: application/json' -d @- | python3 -m json.tool
 ```
 
 ## Tests

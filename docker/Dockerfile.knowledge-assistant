@@ -1,6 +1,7 @@
 # mortgage-knowledge-assistant (M7). Same layout as the analytics image: build / test / runtime stages.
 # Default command: the FastAPI app on port 8001 (Task 7.4). The same image runs the one-off commands
-# (python -m src.ingest, src.rag.ask, src.rag.calibrate) through the knowledge-ingest compose service.
+# (python -m src.ingest, src.rag.ask, src.rag.calibrate, src.ops.summarize_incident) through the knowledge-ingest
+# compose service.
 
 # ---------- Build stage: compilers + headers live here only ----------
 FROM python:3.14.7-slim AS builder

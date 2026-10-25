@@ -3,6 +3,7 @@
     GET  /health                    liveness (container HEALTHCHECK), public
     GET  /health/ready              readiness: database reachable, corpus loaded, AI provider configured; public
     POST /api/v1/assistant/ask      grounded Q&A with citations; JWT (M6) + any staff role; rate limited
+    POST /api/v1/assistant/summarize-incident   incident summary + runbook links (Task 7.6); ADMIN; rate limited
 
 Errors use the platform envelope {code, message, correlationId, timestamp} (guides/standards.md).
 Every request gets an X-Correlation-Id (the caller's, if safe, else a new UUID) that appears in all log lines.
@@ -22,10 +23,13 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.api.hardening import RateLimiter, correlation_id_from, security_headers_for
-from src.api.security import ASSISTANT_ASK, Principal, api_error, require_roles, validate_settings
+from src.api.security import (ASSISTANT_ASK, INCIDENT_SUMMARIZE, Principal, api_error, require_roles,
+                              validate_settings)
 from src.config import ConfigError, Settings, load_settings
 from src.embeddings import Embedder, EmbeddingError, build_embedder
 from src.rag.llm import ChatModel, LLMError, build_chat_model
+from src.ops.incident import MAX_INCIDENT_CHARS, MIN_INCIDENT_CHARS, IncidentInputError, IncidentSummarizer
+from src.ops.prompts import INCIDENT_PROMPT_VERSION
 from src.rag.prompts import ASK_PROMPT_VERSION
 from src.rag.retriever import Retriever
 from src.rag.service import AssistantService, QuestionError
@@ -40,7 +44,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 ASK_PATH = "/api/v1/assistant/ask"
-MAX_ASK_BODY_BYTES = 16 * 1024
+INCIDENT_PATH = "/api/v1/assistant/summarize-incident"
+MAX_BODY_BYTES = {ASK_PATH: 16 * 1024, INCIDENT_PATH: 64 * 1024}
 # LLM calls cost money and time: a tighter per-user budget than ordinary writes (60/min).
 ASK_PER_USER_PER_MINUTE = int(os.getenv("RATE_LIMIT_ASSISTANT_PER_USER", "20"))
 ask_rate_limiter = RateLimiter()
@@ -96,9 +101,9 @@ def _envelope(request: Request, status: int, code: str, message: str, headers: d
 @app.middleware("http")
 async def security_headers_middleware(request: Request, call_next):
     declared = request.headers.get("content-length")
-    if (request.url.path == ASK_PATH and declared and declared.isdigit()
-            and int(declared) > MAX_ASK_BODY_BYTES):
-        response = _envelope(request, 413, "PAYLOAD_TOO_LARGE", "Request body is limited to 16 KB")
+    limit = MAX_BODY_BYTES.get(request.url.path)
+    if limit and declared and declared.isdigit() and int(declared) > limit:
+        response = _envelope(request, 413, "PAYLOAD_TOO_LARGE", f"Request body is limited to {limit // 1024} KB")
     else:
         response = await call_next(request)
     for name, value in security_headers_for(request.url.path).items():
@@ -242,4 +247,81 @@ def ask(request: Request, body: AskRequest,
                 result.insufficient_context, [c.chunk_id for c in result.citations], result.confidence,
                 result.requires_human_approval, ",".join(result.approval_reasons) or "-",
                 result.model or "-", ASK_PROMPT_VERSION)
+    return result.as_api(correlation_id)
+
+
+# --- incident summarization (Task 7.6) -----------------------------------------------------------------------
+
+class IncidentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    incidentText: str = Field(min_length=MIN_INCIDENT_CHARS, max_length=MAX_INCIDENT_CHARS,
+                              description="Incident log lines and notes; personal data and secrets are redacted")
+    incidentId: str | None = Field(default=None, pattern=r"^INC-\d{4}-\d{4}$")
+
+
+class TimelineEntry(BaseModel):
+    time: str
+    event: str
+
+
+class RunbookLink(BaseModel):
+    id: str
+    title: str
+    link: str
+
+
+class IncidentResponse(BaseModel):
+    incidentId: str | None
+    title: str
+    severity: Literal["SEV1", "SEV2", "SEV3", "UNKNOWN"]
+    summary: str
+    impact: str
+    timeline: list[TimelineEntry]
+    suspectedCause: str
+    affectedServices: list[str]
+    recommendedActions: list[str]
+    runbooks: list[RunbookLink]
+    confidence: float
+    requiresHumanApproval: bool
+    approvalReasons: list[str]
+    openQuestions: list[str]
+    correlationId: str
+
+
+def enforce_incident_rate_limit(request: Request,
+                                principal: Principal = Depends(require_roles(*INCIDENT_SUMMARIZE))) -> Principal:
+    decision = ask_rate_limiter.try_acquire(f"incident:{principal.subject}", ASK_PER_USER_PER_MINUTE, 60)
+    if not decision.allowed:
+        raise api_error(request, 429, "RATE_LIMITED", "Too many requests; retry later",
+                        {"Retry-After": str(decision.retry_after_seconds)})
+    return principal
+
+
+def get_incident_summarizer(request: Request, runtime: Runtime = Depends(get_runtime)) -> IncidentSummarizer:
+    if runtime.llm is None:
+        raise api_error(request, 503, "AI_PROVIDER_NOT_CONFIGURED", "The assistant is not configured; try again later")
+    return IncidentSummarizer(runtime.llm)
+
+
+@app.post(INCIDENT_PATH, response_model=IncidentResponse, tags=["operations"])
+def summarize_incident(request: Request, body: IncidentRequest,
+                       principal: Principal = Depends(enforce_incident_rate_limit),
+                       summarizer: IncidentSummarizer = Depends(get_incident_summarizer)):
+    correlation_id = request.state.correlation_id
+    try:
+        result = summarizer.summarize(body.incidentText, body.incidentId, correlation_id)
+    except IncidentInputError as exc:
+        raise api_error(request, 400, "VALIDATION_ERROR", str(exc))
+    except LLMError as exc:
+        logger.error("[%s] AI provider error: %s", correlation_id, exc)
+        raise api_error(request, 503, "AI_PROVIDER_UNAVAILABLE", "The AI provider is unavailable; try again later")
+
+    # Audit line: who, which incident, what was concluded. Never the incident text.
+    logger.info("[%s] incident user=%s incidentId=%s textChars=%d redacted=%s severity=%s confidence=%.2f "
+                "approval=%s reasons=%s runbooks=%s model=%s prompt=%s",
+                correlation_id, principal.subject, body.incidentId or "-", len(body.incidentText),
+                ",".join(result.redacted_types) or "-", result.severity, result.confidence,
+                result.requires_human_approval, ",".join(result.approval_reasons) or "-",
+                [r.id for r in result.runbooks], result.model or "-", INCIDENT_PROMPT_VERSION)
     return result.as_api(correlation_id)
