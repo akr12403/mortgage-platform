@@ -195,6 +195,7 @@ services:
   #   docker compose run --rm knowledge-ingest python -m src.ingest --dry-run --show-chunks   # no API calls
   #   docker compose run --rm knowledge-ingest python -m src.rag.calibrate          # measure similarity threshold
   #   docker compose run --rm knowledge-ingest python -m src.rag.ask "What is the delinquency contact timeline?"
+  #   docker compose run --rm knowledge-ingest python -m src.ops.summarize_incident incidents/INC-2026-0042-servicing-dlq-backlog.txt
   knowledge-ingest:
     build:
       context: .
@@ -210,6 +211,8 @@ services:
     volumes:
       # Mounted read-only so corpus edits are picked up without rebuilding the image.
       - ./ai/mortgage-knowledge-assistant/knowledge:/app/knowledge:ro
+      # Task 7.6 sample incidents for: python -m src.ops.summarize_incident incidents/<file>
+      - ./ai/mortgage-knowledge-assistant/incidents:/app/incidents:ro
     depends_on:
       db-migrate:
         condition: service_completed_successfully

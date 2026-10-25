@@ -20,6 +20,8 @@ ALL_ROLES = (ADMIN, UNDERWRITER, SERVICING_AGENT, RISK_ANALYST, SUPPORT)
 
 # Policy Q&A over an Internal, synthetic corpus: every staff role may ask (no borrower data is returned).
 ASSISTANT_ASK = ALL_ROLES
+# Incident summaries read operational logs (Internal, possibly sensitive): on-call administrators only.
+INCIDENT_SUMMARIZE = (ADMIN,)
 
 MIN_SECRET_BYTES = 32
 CLOCK_SKEW_SECONDS = 30

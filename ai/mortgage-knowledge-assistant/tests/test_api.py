@@ -286,3 +286,98 @@ def test_audit_log_has_ids_and_decision_but_never_the_question_or_personal_data(
     log = "\n".join(records)
     assert "ask user=servicing@capstone.local" in log and TIMELINE_ID in log and "redacted=EMAIL" in log
     assert "jane.doe@example.com" not in log and "contact timeline" not in log
+
+
+# --- incident summarization (Task 7.6) -----------------------------------------------------------------------
+
+INCIDENT = "/api/v1/assistant/summarize-incident"
+INCIDENT_TEXT = ("2026-10-19T02:00:05Z servicing-service ERROR eventType=LoanDelinquent failed on attempt 1/3: "
+                 "unsupported schemaVersion 2.0; 2026-10-19T02:01:07Z moved to capstone-mortgage-servicing-dlq-dev")
+
+
+def incident_reply(**overrides):
+    base = {"title": "Servicing DLQ backlog", "severity": "SEV2", "summary": "LoanDelinquent events in the DLQ.",
+            "impact": "Stale delinquency snapshot for 2 loans.",
+            "timeline": [{"time": "2026-10-19T02:01:07Z", "event": "moved to DLQ"}],
+            "suspectedCause": "Unsupported schemaVersion 2.0", "affectedServices": ["servicing-service"],
+            "recommendedActions": ["Inspect the DLQ without deleting"], "runbookIds": ["messaging-dlq"],
+            "confidence": 0.85, "openQuestions": []}
+    base.update(overrides)
+    return base
+
+
+def test_incident_summary_matches_the_contract_for_admin(store):
+    response = make_client(store, ScriptedLLM(incident_reply())).post(
+        INCIDENT, json={"incidentText": INCIDENT_TEXT, "incidentId": "INC-2026-0042"}, headers=auth("ADMIN"))
+    body = response.json()
+    assert response.status_code == 200
+    assert set(body) == {"incidentId", "title", "severity", "summary", "impact", "timeline", "suspectedCause",
+                         "affectedServices", "recommendedActions", "runbooks", "confidence",
+                         "requiresHumanApproval", "approvalReasons", "openQuestions", "correlationId"}
+    assert body["runbooks"][0]["link"] == "docs/operations/messaging-runbook.md#incident-messages-in-a-dlq"
+    assert body["requiresHumanApproval"] is False and body["correlationId"] == response.headers["X-Correlation-Id"]
+
+
+def test_low_confidence_incident_requires_human_approval(store):
+    response = make_client(store, ScriptedLLM(incident_reply(confidence=0.4, severity="UNKNOWN", runbookIds=[]))).post(
+        INCIDENT, json={"incidentText": INCIDENT_TEXT}, headers=auth("ADMIN"))
+    body = response.json()
+    assert body["requiresHumanApproval"] is True
+    assert set(body["approvalReasons"]) == {"LOW_CONFIDENCE", "SEVERITY_UNKNOWN", "NO_RUNBOOK_MATCH"}
+
+
+@pytest.mark.parametrize("role", ["UNDERWRITER", "SERVICING_AGENT", "RISK_ANALYST", "SUPPORT"])
+def test_incident_summaries_are_admin_only(store, role):
+    response = make_client(store, ScriptedLLM()).post(INCIDENT, json={"incidentText": INCIDENT_TEXT},
+                                                      headers=auth(role))
+    assert response.status_code == 403 and response.json()["code"] == "ACCESS_DENIED"
+
+
+def test_incident_without_token_is_401(store):
+    assert make_client(store, ScriptedLLM()).post(INCIDENT, json={"incidentText": INCIDENT_TEXT}).status_code == 401
+
+
+@pytest.mark.parametrize("payload", [
+    {"incidentText": "too short"},
+    {"incidentText": INCIDENT_TEXT, "incidentId": "INC-42"},
+    {"incidentText": INCIDENT_TEXT, "severity": "SEV3"},
+])
+def test_invalid_incident_requests_are_400(store, payload):
+    response = make_client(store, ScriptedLLM()).post(INCIDENT, json=payload, headers=auth("ADMIN"))
+    assert response.status_code == 400 and response.json()["code"] == "VALIDATION_ERROR"
+
+
+def test_incident_body_over_64kb_is_413(store):
+    response = make_client(store, ScriptedLLM()).post(INCIDENT, json={"incidentText": "x" * 70_000},
+                                                      headers=auth("ADMIN"))
+    assert response.status_code == 413
+
+
+def test_incident_provider_failure_is_503(store):
+    response = make_client(store, ScriptedLLM(LLMError("LLM API returned HTTP 500"))).post(
+        INCIDENT, json={"incidentText": INCIDENT_TEXT}, headers=auth("ADMIN"))
+    assert response.status_code == 503 and response.json()["code"] == "AI_PROVIDER_UNAVAILABLE"
+
+
+def test_incident_audit_log_never_contains_the_incident_text(store):
+    records = []
+
+    class Capture(logging.Handler):
+        def emit(self, record):
+            records.append(record.getMessage())
+
+    handler = Capture(level=logging.INFO)
+    root = logging.getLogger("src")
+    root.addHandler(handler)
+    old_level = root.level
+    root.setLevel(logging.INFO)
+    try:
+        make_client(store, ScriptedLLM(incident_reply())).post(
+            INCIDENT, json={"incidentText": INCIDENT_TEXT, "incidentId": "INC-2026-0042"}, headers=auth("ADMIN"))
+    finally:
+        root.removeHandler(handler)
+        root.setLevel(old_level)
+    log = "\n".join(records)
+    assert "incident user=servicing@capstone.local" in log
+    assert "incidentId=INC-2026-0042" in log and "severity=SEV2" in log and "messaging-dlq" in log
+    assert "unsupported schemaVersion" not in log

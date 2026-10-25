@@ -33,6 +33,21 @@ The service sets `requiresHumanApproval: true` when a question is about one of t
 | 5 | Forbearance, modification or repayment plan longer than 6 months | `FORBEARANCE_OR_MODIFICATION` | Underwriter after a documented hardship review | Explains eligibility and the process | Servicing event; plan details in the loan file |
 | 6 | Status or severity correction ("Change MTG-1002 back to ACTIVE") | `STATUS_CORRECTION` | Administrator | Explains that cures are not automated and who corrects status | Servicing event "Delinquency cured…" plus the admin's correction |
 
+### Incident summaries (Task 7.6)
+
+`POST /api/v1/assistant/summarize-incident` (ADMIN only) proposes a severity, cause, actions and runbook links. It never acts: no endpoint lets it replay, delete, rotate or reconfigure anything, and its prompt forbids recommending those without approval. `requiresHumanApproval` is decided **in code** (`src/ops/incident.py`), and the on-call administrator must confirm the summary before acting when any of these holds:
+
+| Reason code | Trigger | Why a person must confirm |
+| --- | --- | --- |
+| `LOW_CONFIDENCE` | model confidence < 0.7 | thin or contradictory evidence |
+| `SEV1` | customer-facing outage or data exposure | high impact; incident commander decides |
+| `SEVERITY_UNKNOWN` | impact not shown in the text | cannot prioritise without a human |
+| `NO_RUNBOOK_MATCH` | no catalogue runbook fits | no documented procedure to follow |
+| `INVENTED_RUNBOOK` | model named a runbook outside the catalogue (dropped) | sign of an unreliable answer |
+| `SENSITIVE_DATA_IN_LOG` | redaction removed personal data or a secret from the log | possible data exposure: follow incident reporting and rotation |
+
+Audit line per summary: user, incident id, text length, redacted types, severity, confidence, approval and reasons, runbook ids, model, prompt version; never the incident text.
+
 ### When the underwriter must override the assistant
 
 Even when an answer is not flagged, the human's judgement wins. An underwriter or agent **must override** (ignore) assistant output when:
@@ -66,7 +81,7 @@ Plus: the retrieval line (top-k chunk ids and similarities, threshold), a warnin
 
 ## PII redaction rules
 
-Applied to every question **before** it is embedded, sent to the LLM or logged (`src/rag/redaction.py`). Redaction is a safety net: the rule for users is still "never paste personal data".
+Applied to every question and every incident text **before** it is embedded, sent to the LLM or logged (`src/rag/redaction.py`). Redaction is a safety net: the rule for users is still "never paste personal data".
 
 | Type | Example pattern | Replaced with |
 | --- | --- | --- |
@@ -75,6 +90,7 @@ Applied to every question **before** it is embedded, sent to the LLM or logged (
 | Card number | 13–19 digits with optional spaces or dashes | `[REDACTED-CARD]` |
 | Phone | `(555) 123-4567`, `+1 555.123.4567` | `[REDACTED-PHONE]` |
 | Bank account / routing | "account number 123456789012" | `[REDACTED-ACCOUNT]` |
+| `name=value` secret | `password=…`, `JWT_SECRET=…`, `token: …`, `api_key="…"` | `[REDACTED-SECRET]` |
 | Date of birth | "DOB: 04/12/1985" | `[REDACTED-DOB]` |
 | API key | `sk-…` | `[REDACTED-API_KEY]` |
 | JWT | `eyJ….….…` | `[REDACTED-JWT]` |
@@ -96,7 +112,8 @@ The Session 26 mini exercise: each control, the automated test that proves it, a
 | 5 | **PII redaction** before embedding, the LLM and logs | `test_control_5_personal_data_is_redacted_before_retrieval_and_the_llm`, redaction tests above, audit-log test | — |
 | 6 | **Prompt-injection guard.** Question cannot open or close prompt tags; passages and question are declared data | `test_prompt_injection_in_question_cannot_close_the_question_tag` | — |
 | 7 | **Approval flag** on case decisions, on both paths | `test_case_decisions_require_human_approval` (7 cases), `test_general_policy_questions_do_not` (4), `test_case_decision_is_flagged_even_when_the_knowledge_base_cannot_answer` | Foreclosure question → `requiresHumanApproval: true`, reason `FORECLOSURE_OR_LEGAL` |
-| 8 | **Prompt in docs = prompt in code** | `tests/test_prompt_library.py` | — |
+| 8 | **Prompt in docs = prompt in code** (both production prompts) | `tests/test_prompt_library.py` | — |
+| 9 | **Incident summaries: catalogue-only runbooks, code-decided approval** | `tests/test_incident.py` | `INC-2026-0042` / `INC-2026-0043` runs (service README) |
 
 **Threshold calibration** (`python -m src.rag.calibrate`, evidence in the service README): hit@5 **11/11** on-corpus questions; on-corpus best similarity 0.528–0.768; off-corpus 0.065–0.374 (strongest: "today's 30-year mortgage rate", a near-domain question the corpus does not answer). The handbook default 0.7 answered only 3 of 11 real questions; **0.45** answers 11/11 and lets 0/6 off-corpus questions reach the model.
 
