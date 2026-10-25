@@ -10,7 +10,7 @@ RAG assistant that answers mortgage policy questions from a controlled knowledge
 | 7.2 | Ingestion pipeline: load → chunk → embed → pgvector | `src/ingest/`, `src/embeddings.py`, `src/store/`, `database/migrations/005_knowledge_chunk.sql` |
 | 7.3 | Retrieval, grounded generation with citations, insufficient-context path, threshold calibration | `src/rag/` |
 | 7.4 | FastAPI service: `POST /api/v1/assistant/ask` (M6 JWT), `/health`, `/health/ready`, correlation IDs, rate limit | `src/api/`, [`docs/api/mortgage-knowledge-assistant-openapi.yaml`](../../docs/api/mortgage-knowledge-assistant-openapi.yaml) |
-| 7.5 | Prompt library and governance | `docs/ai/` (to come) |
+| 7.5 | Prompt library (6 versioned templates) and governance (human approval, logging, PII, hallucination controls) | [`docs/ai/prompt-library.md`](../../docs/ai/prompt-library.md), [`docs/ai/governance.md`](../../docs/ai/governance.md) |
 | 7.6 | Incident summarization | to come |
 
 ## Configuration
@@ -208,7 +208,7 @@ cd ai/mortgage-knowledge-assistant && python -m pytest -q tests
 # or, matching CI:  docker build -f docker/Dockerfile.knowledge-assistant --target test -t ka-test . && docker run --rm ka-test
 ```
 
-The tests use a fake embedder and an in-memory store, so they need no API key, network or database. Task 7.3 tests use a scripted LLM, so they make no API calls; Task 7.4 tests (`test_api.py`) drive the HTTP API end to end through FastAPI's test client with an in-memory store and cover auth, every role, validation, error codes, correlation ids, rate limiting, readiness and the audit log; they cover every hallucination control above, redaction, approval rules and the chat client's request format. The tests also check the real `knowledge/v1` corpus: the five required documents, unique chunk IDs, the 30-day rule and severity bands, loan-type sections, and no personal data or keys.
+The tests use a fake embedder and an in-memory store, so they need no API key, network or database. Task 7.3 tests use a scripted LLM, so they make no API calls; Task 7.4 tests (`test_api.py`) drive the HTTP API end to end through FastAPI's test client with an in-memory store and cover auth, every role, validation, error codes, correlation ids, rate limiting, readiness and the audit log; they cover every hallucination control above, redaction, approval rules and the chat client's request format. `tests/test_prompt_library.py` checks that `docs/ai/prompt-library.md` shows the production prompt exactly (skipped in the Docker test image, which holds only this service). The tests also check the real `knowledge/v1` corpus: the five required documents, unique chunk IDs, the 30-day rule and severity bands, loan-type sections, and no personal data or keys.
 
 ## Troubleshooting
 
