@@ -12,6 +12,7 @@ Threats come from the [threat model](./threat-model.md) (`T-xx`), and findings f
 | Backend lead | mortgage-service and servicing-service |
 | Analytics lead | analytics-service and documents |
 | Platform lead | AWS, Terraform, CI/CD, secrets |
+| AI lead | knowledge assistant, prompts, corpus, AI provider (M7) |
 
 ## Register
 
@@ -34,14 +35,17 @@ Threats come from the [threat model](./threat-model.md) (`T-xx`), and findings f
 | R-15 | Reconnaissance helped by public API docs, internal IDs and server banners | T-22 · VULN-M6-015 VULN-M6-016 | 3×2 = 6 | deny-by-default routes, generic errors | 3 | 2 | 6 Low | Analytics lead | Open (B-07, B-08) | before the first shared environment |
 | R-16 | Supply-chain compromise through dependencies or the pipeline | T-24 | 3×5 = **15** | protected branches and review (M2), pinned versions, lockfile for the TS client, blocking CI gates: gitleaks, Semgrep, Trivy, pip-audit (6.7) | 2 | 5 | 10 Medium | Platform lead | Mitigated (Task 6.7): secret, SAST and dependency gates on every PR ([devsecops-baseline.md](../operations/devsecops-baseline.md)). Merge blocking isn't enforced by GitHub on this free private repository (accepted below); image/IaC scanning and digest pinning in M9 | M9 |
 | R-17 | Framework line out of open-source support: Spring Boot 3.5 / Spring Framework 6.2 / Spring Security 6.5 get no further OSS patches after June 2026 | VULN-M6-018 VULN-M6-019 | 4×4 = **16** | newest available 3.5.16; Tomcat pinned to the current 10.1.x; dependency gate reports every new HIGH/CRITICAL | 3 | 4 | 12 Medium | Backend lead | Open. Migrate to Spring Boot 4.x (B-18); until then the gate flags any new Critical and the PR is blocked | M9 |
+| R-18 | Staff act on a wrong or fabricated AI answer (hallucination, prompt injection, poisoned corpus, over-trusted incident advice) | T-26 T-27 T-31 T-32 | 4×4 = **16** | per-question similarity gate, context-only prompt, strict JSON, citation verification, insufficient-context reply, code-decided `requiresHumanApproval`, reviewed and versioned corpus; [governance.md](../ai/governance.md) | 2 | 4 | 8 Medium | AI lead | Mitigated (M7). Approval rules are keyword-based; graded answer-evaluation set in M10 | M10 |
+| R-19 | Personal data disclosed to the external AI provider | T-28 | 4×4 = **16** | synthetic corpus, PII and secret redaction before every LLM call, business ids only, no prompt or answer logging, user rule in the security policy | 2 | 4 | 8 Medium | AI lead + security lead | Partial: names and addresses are not detectable by pattern. Before any real data: a named-entity redactor and a data-processing agreement with the provider | before real data |
+| R-20 | AI API key leak or cost abuse | T-29 T-30 | 3×3 = 9 | restricted project key with allowed models, expiry, spend alert, prepaid balance without auto-reload, env-only storage, gitleaks, per-user rate limit, LLM skipped for off-corpus questions | 1 | 3 | 3 Low | Platform lead | Mitigated (M7). Key moves to Secrets Manager (M8) | M8 |
 
 ## Heat map (residual)
 
 | Impact ↓ / Likelihood → | 1 | 2 | 3 | 4 | 5 |
 | --- | --- | --- | --- | --- | --- |
 | **5** | R-03 R-06 R-11 | R-01 R-04 R-08 R-12 R-16 | | | |
-| **4** | R-02 R-07 R-10 R-13 | R-05 R-14 | R-17 | | |
-| **3** | | | R-09 | | |
+| **4** | R-02 R-07 R-10 R-13 | R-05 R-14 R-18 R-19 | R-17 | | |
+| **3** | R-20 | | R-09 | | |
 | **2** | | | R-15 | | |
 
 No residual risk is in the High band.
