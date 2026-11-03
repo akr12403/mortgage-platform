@@ -1,4 +1,4 @@
-"""M8 Task 8.1: static least-privilege guard for the IAM policies in infrastructure/aws/iam/.
+"""M8 Tasks 8.1/8.2: static least-privilege guard for the IAM and S3 policies in infrastructure/aws/.
 
     python3 tests/security/test_iam_policies.py      # stdlib only, no AWS account needed (runs in the sast CI job)
 
@@ -19,8 +19,9 @@ RESOURCES_ENV = ROOT / "infrastructure" / "aws" / "resources.conf"
 MATRIX = ROOT / "docs" / "architecture" / "aws-iam-matrix.md"
 EXERCISE = IAM / "exercise" / "lambda-doc-processor-overpermissioned.json"
 
-DERIVED = {"ACCOUNT_ID": "111122223333", "REGION": "us-east-2",
+DERIVED = {"ACCOUNT_ID": "111122223333", "REGION": "us-east-2", "BUCKET": "capstone-mortgage-docs-dev",
            "DEV_PRINCIPAL_ARN": "arn:aws:iam::111122223333:role/AccountFullAccessRole"}
+S3_DIR = ROOT / "infrastructure" / "aws" / "s3"
 ALLOWED_SERVICE_PRINCIPALS = {"lambda.amazonaws.com", "glue.amazonaws.com"}
 
 
@@ -135,6 +136,28 @@ class IamPolicyTests(unittest.TestCase):
         for role in ROLES:
             with self.subTest(role=role["name"]):
                 self.assertIn(f"`{role['name']}`", matrix)
+
+    def test_bucket_policy_only_denies_the_public_and_requires_tls(self):
+        doc = _render(S3_DIR / "bucket-policy.json")
+        for st in doc["Statement"]:
+            with self.subTest(sid=st.get("Sid")):
+                if st.get("Principal") == "*" or st.get("Principal") == {"AWS": "*"}:
+                    self.assertEqual(st["Effect"], "Deny", "a public principal may only appear in a Deny")
+                self.assertNotIn("NotPrincipal", st)
+        tls = next(st for st in doc["Statement"] if st["Sid"] == "DenyInsecureTransport")
+        self.assertEqual(tls["Condition"], {"Bool": {"aws:SecureTransport": "false"}})
+        self.assertEqual(set(tls["Resource"]), {"arn:aws:s3:::capstone-mortgage-docs-dev",
+                                                "arn:aws:s3:::capstone-mortgage-docs-dev/*"})
+
+    def test_lifecycle_rules_are_scoped_and_bounded(self):
+        for path in sorted(S3_DIR.glob("lifecycle-*.json")):
+            with self.subTest(file=path.name):
+                rules = _render(path)["Rules"]
+                self.assertTrue(any("AbortIncompleteMultipartUpload" in r for r in rules))
+                for rule in rules:
+                    if "Expiration" in rule:
+                        self.assertTrue(rule["Filter"].get("Prefix"), "expiration must be limited to a prefix")
+                        self.assertGreaterEqual(rule["Expiration"]["Days"], 7)
 
     def test_no_account_id_or_keys_committed(self):
         for path in (ROOT / "infrastructure" / "aws").rglob("*"):

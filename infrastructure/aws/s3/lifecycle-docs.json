@@ -1,0 +1,16 @@
+{
+  "Rules": [
+    {
+      "ID": "dev-expire-uploaded-documents-after-30-days",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "${DOCS_UPLOAD_PREFIX}" },
+      "Expiration": { "Days": 30 }
+    },
+    {
+      "ID": "abort-incomplete-multipart-uploads",
+      "Status": "Enabled",
+      "Filter": {},
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+    }
+  ]
+}

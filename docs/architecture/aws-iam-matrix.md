@@ -56,7 +56,7 @@ The handbook asks for three roles. Two more are added for least privilege, rathe
   - The developer's `aws login` session (role `AccountFullAccessRole`) assumes the workload's role, which gives 1-hour credentials.
   - Those credentials go into the container only. No long-lived keys exist in `.env`, the repo or any image.
   - The trust policy names that exact role ARN, filled in by `iam-apply.sh`.
-  - The wiring is added in Task 8.2.
+  - The wiring is `scripts/aws/compose-aws-up.sh` and `docker-compose.aws.yml` (Task 8.2; see [aws-s3-document-storage.md](aws-s3-document-storage.md#upload-path-no-long-lived-keys)).
 - **M9 (ECS/Terraform):** the app roles' trust changes from the developer session to `ecs-tasks.amazonaws.com`, and the policies stay the same.
 
 ## Verification
