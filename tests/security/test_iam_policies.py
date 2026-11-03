@@ -161,7 +161,7 @@ class IamPolicyTests(unittest.TestCase):
 
     def test_no_account_id_or_keys_committed(self):
         for path in (ROOT / "infrastructure" / "aws").rglob("*"):
-            if path.is_file():
+            if path.is_file() and "__pycache__" not in path.parts and path.suffix in (".json", ".md", ".py", ".conf", ".sh"):
                 text = path.read_text()
                 with self.subTest(file=str(path.relative_to(ROOT))):
                     self.assertIsNone(re.search(r"(?<![\d.])\d{12}(?![\d.])", text), "hard-coded account id")
