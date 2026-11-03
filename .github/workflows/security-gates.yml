@@ -41,6 +41,7 @@ jobs:
       - run: sh scripts/security-gates.sh sast
       - run: python3 tests/security/test_static_sql.py
       - run: python3 tests/security/test_iam_policies.py   # M8: IAM least-privilege guard
+      - run: python3 -m unittest discover -s infrastructure/aws/lambda/doc_processor/tests   # M8: document Lambda
       - uses: actions/upload-artifact@v6
         if: always()
         with: { name: semgrep-report, path: reports/security/semgrep.json, if-no-files-found: ignore }

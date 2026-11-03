@@ -29,7 +29,7 @@ def get_s3_client():
     return boto3.client('s3', config=config, endpoint_url=endpoint_url, region_name=region)
 
 def upload_document_to_s3(file_bytes: bytes, mortgage_external_id: str, file_name: str, correlation_id: str = None,
-                          content_type: str = "application/octet-stream") -> str:
+                          content_type: str = "application/octet-stream", document_type: str = None) -> str:
     bucket_name = os.getenv("S3_BUCKET_DOCUMENTS", "capstone-mortgage-docs-dev")
     unique_filename = f"{uuid.uuid4()}-{file_name}"
     s3_key = f"mortgages/{mortgage_external_id}/{unique_filename}"
@@ -42,6 +42,8 @@ def upload_document_to_s3(file_bytes: bytes, mortgage_external_id: str, file_nam
             Body=file_bytes,
             ContentType=content_type,
             ServerSideEncryption="AES256",  # the bucket default is SSE-S3 too; explicit so it holds on any bucket
+            # Read by the document Lambda (M8 Task 8.3) so its log line carries the API request's correlation id.
+            Metadata={k: v for k, v in {"correlation-id": correlation_id, "document-type": document_type}.items() if v},
         )
         logger.info(f"[{correlation_id}] Successfully uploaded {s3_key} to S3 bucket {bucket_name}")
         return s3_key

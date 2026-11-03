@@ -41,8 +41,10 @@ def test_s3_region_overrides_aws_region(monkeypatch):
 def test_upload_uses_default_bucket_name_and_requests_sse_s3():
     s3 = boto3.client("s3", region_name="us-east-1")
     s3.create_bucket(Bucket="capstone-mortgage-docs-dev")
-    key = s3_service.upload_document_to_s3(b"hello", "MTG-1002", "note.txt", "cid-1", content_type="text/plain")
+    key = s3_service.upload_document_to_s3(b"hello", "MTG-1002", "note.txt", "cid-1", content_type="text/plain",
+                                           document_type="DEED")
     assert key.startswith("mortgages/MTG-1002/") and key.endswith("-note.txt")
     head = s3.head_object(Bucket="capstone-mortgage-docs-dev", Key=key)
     assert head["ServerSideEncryption"] == "AES256"
     assert head["ContentType"] == "text/plain"
+    assert head["Metadata"] == {"correlation-id": "cid-1", "document-type": "DEED"}  # read by the Task 8.3 Lambda

@@ -69,7 +69,7 @@ async def upload_document(
 
     # 3. Upload to S3 (retries + timeouts in s3_service); the key only contains validated parts
     s3_key = upload_document_to_s3(file_bytes, mortgage_external_id, safe_filename, correlation_id,
-                                   content_type=content_type)
+                                   content_type=content_type, document_type=document_type)
 
     # 4. Insert row into document table with s3_key
     doc_id = str(uuid.uuid4())
