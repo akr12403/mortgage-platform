@@ -1,0 +1,26 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadUploadedDocumentForValidation",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::${DOCS_BUCKET}/${DOCS_UPLOAD_PREFIX}*"
+    },
+    {
+      "Sid": "WriteDocumentMetadataItem",
+      "Effect": "Allow",
+      "Action": "dynamodb:PutItem",
+      "Resource": "arn:aws:dynamodb:${REGION}:${ACCOUNT_ID}:table/${DOC_METADATA_TABLE}"
+    },
+    {
+      "Sid": "WriteOwnLogGroupOnly",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:${REGION}:${ACCOUNT_ID}:log-group:/aws/lambda/${LAMBDA_FUNCTION}:*"
+    }
+  ]
+}

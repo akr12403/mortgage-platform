@@ -1,0 +1,40 @@
+{
+  "_comment": "M8 Task 8.1 role manifest: read by scripts/aws/iam-apply.sh, iam-verify.sh, teardown.sh and tests/security/test_iam_policies.py. Matrix: docs/architecture/aws-iam-matrix.md",
+  "roles": [
+    {
+      "name": "mortgage-api-role",
+      "usedBy": "mortgage-service (Java, port 8080)",
+      "description": "mortgage-service: publish mortgage lifecycle events to SNS. Nothing else.",
+      "trust": "trust/developer-assume.json",
+      "policy": "policies/mortgage-api-role.json"
+    },
+    {
+      "name": "mortgage-servicing-role",
+      "usedBy": "servicing-service (Java, port 8081)",
+      "description": "servicing-service: consume its own SQS queue. Nothing else.",
+      "trust": "trust/developer-assume.json",
+      "policy": "policies/mortgage-servicing-role.json"
+    },
+    {
+      "name": "mortgage-analytics-role",
+      "usedBy": "mortgage-analytics-service (Python, port 8000) and the M8 pipeline scripts",
+      "description": "mortgage-analytics-service: document upload, raw export, curated read, Glue run, DynamoDB lookup, analytics queue.",
+      "trust": "trust/developer-assume.json",
+      "policy": "policies/mortgage-analytics-role.json"
+    },
+    {
+      "name": "lambda-doc-processor-role",
+      "usedBy": "Lambda capstone-mortgage-doc-processor-dev (Task 8.3)",
+      "description": "Lambda execution role: read uploaded documents, write one metadata item, write its own logs.",
+      "trust": "trust/lambda.json",
+      "policy": "policies/lambda-doc-processor-role.json"
+    },
+    {
+      "name": "mortgage-glue-etl-role",
+      "usedBy": "Glue job capstone-mortgage-delinquency-etl-dev (Task 8.5)",
+      "description": "Glue job role: read raw export and job assets, write curated zone, write Glue logs.",
+      "trust": "trust/glue.json",
+      "policy": "policies/mortgage-glue-etl-role.json"
+    }
+  ]
+}

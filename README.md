@@ -15,7 +15,7 @@ The Enterprise Mortgage Platform is an event-driven, microservices-based system 
 | **M5** | Microservices & Events | 6 | `docs/milestones/m05.md` | **Completed** |
 | **M6** | Security Engineering | 7–8 | `docs/milestones/m06.md` | **Completed** |
 | **M7** | AI / RAG Assistant | 9 | `docs/milestones/m07.md` | **Completed** |
-| **M8** | AWS & Data Platform | 10 | `docs/milestones/m08.md` | Planned |
+| **M8** | AWS & Data Platform | 10 | `docs/milestones/m08.md` | In progress |
 | **M9** | CI/CD, Terraform, Observability | 11 | `docs/milestones/m09.md` | Planned |
 | **M10** | Testing & Production Readiness | 12 | `docs/milestones/m10.md` | Planned |
 
