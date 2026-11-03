@@ -1,0 +1,48 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadRawExportAndJobAssets",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": [
+        "arn:aws:s3:::${ANALYTICS_BUCKET}/${RAW_PREFIX}*",
+        "arn:aws:s3:::${ANALYTICS_BUCKET}/${GLUE_ASSETS_PREFIX}*"
+      ]
+    },
+    {
+      "Sid": "WriteCuratedZoneOnly",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:aws:s3:::${ANALYTICS_BUCKET}/${CURATED_PREFIX}*"
+    },
+    {
+      "Sid": "ListOnlyEtlPrefixes",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::${ANALYTICS_BUCKET}",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "${RAW_PREFIX}*",
+            "${CURATED_PREFIX}*",
+            "${GLUE_ASSETS_PREFIX}*"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "WriteGlueJobLogGroupsOnly",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:${REGION}:${ACCOUNT_ID}:log-group:/aws-glue/*"
+    }
+  ]
+}

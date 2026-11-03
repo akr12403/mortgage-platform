@@ -1,0 +1,11 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PublishMortgageLifecycleEvents",
+      "Effect": "Allow",
+      "Action": "sns:Publish",
+      "Resource": "arn:aws:sns:${REGION}:${ACCOUNT_ID}:${LIFECYCLE_TOPIC}"
+    }
+  ]
+}
