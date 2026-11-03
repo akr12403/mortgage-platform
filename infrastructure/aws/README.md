@@ -9,8 +9,10 @@ AWS sandbox definitions for Milestone 8. Resources are created by the scripts in
 | `iam/policies/*.json` | Least-privilege permission policies (templates using `${ACCOUNT_ID}`, `${REGION}` and resource names) |
 | `iam/trust/*.json` | Who may assume each role |
 | `iam/exercise/` | The over-permissioned "before" policy for the Task 8.1 mini exercise. It is never applied. |
+| `s3/bucket-policy.json` | TLS-only bucket policy, applied to both buckets (Task 8.2) |
+| `s3/lifecycle-*.json` | Dev cleanup rules per bucket (30-day expiry by prefix; abort stale multipart uploads) |
 
-Role-by-role detail: [docs/architecture/aws-iam-matrix.md](../../docs/architecture/aws-iam-matrix.md).
+Role-by-role detail: [docs/architecture/aws-iam-matrix.md](../../docs/architecture/aws-iam-matrix.md). Buckets and the upload path: [docs/architecture/aws-s3-document-storage.md](../../docs/architecture/aws-s3-document-storage.md).
 
 ## Prerequisites (once)
 
@@ -36,7 +38,10 @@ The scripts always use profile `capstone-dev` in `us-east-2`. They ignore `AWS_E
 python3 tests/security/test_iam_policies.py   # static least-privilege guard (no AWS needed, also runs in CI)
 bash scripts/aws/iam-apply.sh                 # validate (IAM Access Analyzer) + create/update the roles
 bash scripts/aws/iam-verify.sh                # policy simulator: 39 allow/deny cases must match
-bash scripts/aws/teardown.sh                  # delete everything M8 created (asks first; --yes to skip)
+bash scripts/aws/s3-apply.sh                  # create/harden both buckets (Task 8.2)
+bash scripts/aws/s3-verify.sh                 # bucket config + live allow/deny tests as mortgage-analytics-role
+bash scripts/aws/compose-aws-up.sh            # analytics-service uploads to real S3 with 1-hour role credentials
+bash scripts/aws/teardown.sh                  # empty + delete the buckets, delete the roles (asks first; --yes to skip)
 ```
 
 Rendered policies, which contain the account id, are written to `reports/aws/`. That folder is git-ignored.
