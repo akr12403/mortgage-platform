@@ -4,11 +4,23 @@
 
 Stdlib only. Prints one row per XML file (tests, failures, errors, skipped, time) and lists up to 10 failing tests.
 Never fails the job: the test step itself decides pass/fail.
+XML safety (Semgrep use-defused-xml-parse): the input is JUnit XML written by this run's own test tools, and any
+file that declares a DTD or entities is refused before parsing (that is what defusedxml blocks: XXE, entity
+expansion), so the stdlib parser never sees external or nested entities. No extra dependency on the runner.
 """
 import glob
 import os
 import sys
 import xml.etree.ElementTree as ET
+
+
+def safe_parse(path):
+    with open(path, "rb") as fh:
+        data = fh.read()
+    if b"<!DOCTYPE" in data.upper() or b"<!ENTITY" in data.upper():
+        raise ValueError("DTD/entity declarations are not allowed in JUnit reports")
+    # nosemgrep: python.lang.security.use-defused-xml-parse.use-defused-xml-parse -- DTDs/entities rejected above
+    return ET.fromstring(data)
 
 
 def suites(root):
@@ -27,8 +39,8 @@ def main():
     totals = [0, 0, 0, 0, 0.0]
     for path in files:
         try:
-            root = ET.parse(path).getroot()
-        except ET.ParseError:
+            root = safe_parse(path)
+        except (ET.ParseError, ValueError):
             print(f"| `{os.path.basename(path)}` | unreadable | | | | |")
             continue
         t = f = e = s = 0
