@@ -21,7 +21,7 @@ read -r AK SK ST < <(aws_sb sts assume-role --role-arn "$ROLE_ARN" --role-sessio
   --duration-seconds 900 --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text)
 [ -n "${ST:-}" ] || die "assume-role failed"
 export M8_ANALYTICS_AWS_ACCESS_KEY_ID="$AK" M8_ANALYTICS_AWS_SECRET_ACCESS_KEY="$SK" M8_ANALYTICS_AWS_SESSION_TOKEN="$ST"
-export M8_AWS_REGION="$AWS_SANDBOX_REGION" M8_DOCS_BUCKET="$DOCS_BUCKET" M8_LOOKUP_TABLE="$LOOKUP_TABLE"
+export M8_AWS_REGION="$AWS_SANDBOX_REGION" M8_DOCS_BUCKET="$DOCS_BUCKET" M8_LOOKUP_TABLE="$LOOKUP_TABLE" M8_ANALYTICS_BUCKET="$ANALYTICS_BUCKET"
 ok "credentials ready"
 
 log "Bulk load PostgreSQL -> $LOOKUP_TABLE"

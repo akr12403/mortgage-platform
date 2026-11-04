@@ -18,7 +18,7 @@ read -r AK SK ST EXP < <(aws_sb sts assume-role --role-arn "$ROLE_ARN" --role-se
   --duration-seconds 3600 --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken,Expiration]' --output text)
 [ -n "${ST:-}" ] || die "assume-role failed (see the error above); run iam-apply.sh if the role is missing"
 export M8_ANALYTICS_AWS_ACCESS_KEY_ID="$AK" M8_ANALYTICS_AWS_SECRET_ACCESS_KEY="$SK" M8_ANALYTICS_AWS_SESSION_TOKEN="$ST"
-export M8_AWS_REGION="$AWS_SANDBOX_REGION" M8_DOCS_BUCKET="$DOCS_BUCKET" M8_LOOKUP_TABLE="$LOOKUP_TABLE"
+export M8_AWS_REGION="$AWS_SANDBOX_REGION" M8_DOCS_BUCKET="$DOCS_BUCKET" M8_LOOKUP_TABLE="$LOOKUP_TABLE" M8_ANALYTICS_BUCKET="$ANALYTICS_BUCKET"
 ok "credentials valid until $EXP"
 
 log "Start analytics-service with S3 -> s3://$DOCS_BUCKET, DynamoDB -> $LOOKUP_TABLE ($AWS_SANDBOX_REGION)"

@@ -44,7 +44,7 @@ Role codes come from `guides/standards.md` and travel in the JWT `roles` claim.
 
 | Endpoint | ADMIN | UNDERWRITER | SERVICING_AGENT | RISK_ANALYST | SUPPORT | Group |
 | --- | :-: | :-: | :-: | :-: | :-: | --- |
-| `GET /api/v1/analytics/*` (portfolio, delinquency, borrower risk, payment trends, event stats) | ✓ | ✓ | ✗ | ✓ | ✗ | ANALYTICS_READ |
+| `GET /api/v1/analytics/*` (portfolio, delinquency, borrower risk, payment trends, event stats, M8 curated delinquency report) | ✓ | ✓ | ✗ | ✓ | ✗ | ANALYTICS_READ |
 | `POST /api/v1/documents/upload` | ✓ | ✓ | ✓ | ✗ | ✗ | DOCUMENT_UPLOAD |
 | `GET /api/v1/lookup/mortgages/{id}` (M8, DynamoDB cache: status, balance, no PII) | ✓ | ✓ | ✓ | ✓ | ✗ | LOOKUP_READ |
 
