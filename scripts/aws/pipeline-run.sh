@@ -4,6 +4,8 @@
 #   aws login --profile capstone-dev --region us-east-2
 #   bash scripts/aws/pipeline-run.sh              # partition = today (UTC)
 #   RUN_DATE=2026-11-04 bash scripts/aws/pipeline-run.sh
+#   DRIFT_COLUMN=property_state bash scripts/aws/pipeline-run.sh                          # Task 8.6 drift: run FAILS + alert
+#   DRIFT_COLUMN=property_state SCHEMA_DRIFT_MODE=evolve bash scripts/aws/pipeline-run.sh # tolerated, recorded in manifest
 # Steps 2 and 3 run as mortgage-analytics-role (15-minute STS credentials): it may write raw/pg-export/ and start this
 # one job, but cannot write curated/ (only the Glue role can). Runbook: docs/operations/data-pipeline-runbook.md
 set -euo pipefail
@@ -13,6 +15,9 @@ log "Session"
 require_session
 cd "$REPO_ROOT"
 RUN_DATE="${RUN_DATE:-$(date -u +%F)}"
+DRIFT_COLUMN="${DRIFT_COLUMN:-}"; SCHEMA_DRIFT_MODE="${SCHEMA_DRIFT_MODE:-fail}"
+case "$DRIFT_COLUMN" in ''|[a-z]*) ;; *) die "DRIFT_COLUMN must be a lower-case column name" ;; esac
+case "$DRIFT_COLUMN" in *[!a-z0-9_]*) die "DRIFT_COLUMN must be a lower-case column name" ;; esac
 PIPELINE_RUN_ID="pr-$(date -u +%Y%m%dT%H%M%SZ)-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:8])')"
 WORK="$RENDER_DIR/pipeline/date=$RUN_DATE"; rm -rf "$WORK"; mkdir -p "$WORK"
 env_value() { [ -f .env ] && grep -E "^$1=" .env | tail -1 | cut -d= -f2- || true; }
@@ -27,12 +32,13 @@ log "1. Export PostgreSQL (run date $RUN_DATE, pipeline run $PIPELINE_RUN_ID)"
 # Only the columns the report needs. The borrower export has the business ID only: no names, contact data or DOB.
 declare_sql() {
   case "$1" in
-    mortgage)    echo "SELECT id, mortgage_external_id, borrower_id, status, original_amount, outstanding_balance, origination_date FROM mortgage ORDER BY mortgage_external_id" ;;
+    mortgage)    echo "SELECT id, mortgage_external_id, borrower_id, status, original_amount, outstanding_balance, origination_date${DRIFT_COLUMN:+, 'CA'::text AS $DRIFT_COLUMN} FROM mortgage ORDER BY mortgage_external_id" ;;
     borrower)    echo "SELECT id, borrower_external_id FROM borrower ORDER BY borrower_external_id" ;;
     delinquency) echo "SELECT mortgage_id, delinquent_since, days_past_due, severity FROM delinquency ORDER BY mortgage_id" ;;
     payment)     echo "SELECT mortgage_id, due_date, paid_date, amount, status FROM payment ORDER BY mortgage_id, due_date" ;;
   esac
 }
+[ -z "$DRIFT_COLUMN" ] || warn "DRIFT DEMO: the mortgage export gets an extra column '$DRIFT_COLUMN' (schema drift mode: $SCHEMA_DRIFT_MODE)"
 for table in mortgage borrower delinquency payment; do
   psql_ -c "\\copy ($(declare_sql "$table")) TO STDOUT WITH (FORMAT csv, HEADER true)" > "$WORK/$table.csv"
   ok "$table.csv  $(($(wc -l < "$WORK/$table.csv") - 1)) rows"
@@ -63,7 +69,7 @@ done
 ok "5 objects uploaded (SSE-S3 by bucket default)"
 
 log "3. Glue job $GLUE_JOB"
-RUN_ID=$(as_role glue start-job-run --job-name "$GLUE_JOB" --arguments "{\"--RUN_DATE\":\"$RUN_DATE\",\"--PIPELINE_RUN_ID\":\"$PIPELINE_RUN_ID\"}" \
+RUN_ID=$(as_role glue start-job-run --job-name "$GLUE_JOB" --arguments "{\"--RUN_DATE\":\"$RUN_DATE\",\"--PIPELINE_RUN_ID\":\"$PIPELINE_RUN_ID\",\"--SCHEMA_DRIFT_MODE\":\"$SCHEMA_DRIFT_MODE\"}" \
   --query JobRunId --output text)
 ok "started Glue run $RUN_ID for pipeline run $PIPELINE_RUN_ID (as mortgage-analytics-role)"
 state=""; started=$(date +%s)
@@ -86,7 +92,24 @@ for group in /aws-glue/python-jobs/output /aws-glue/python-jobs/error; do
   aws_sb logs filter-log-events --log-group-name "$group" --log-stream-names "$RUN_ID" \
     --query 'events[].message' --output text 2>/dev/null | tr '\t' '\n' | grep '"service": "glue-delinquency-etl"' | sed 's/^/  /' || true
 done
-[ "$state" = "SUCCEEDED" ] || die "pipeline failed; see docs/operations/data-pipeline-runbook.md#failure-handling"
+if [ "$state" != "SUCCEEDED" ]; then
+  log "Alert (EventBridge rule $GLUE_JOB-failed -> $PIPELINE_ALERT_LOG_GROUP)"
+  alert=""
+  for _ in $(seq 1 12); do
+    alert=$(aws_sb logs filter-log-events --log-group-name "$PIPELINE_ALERT_LOG_GROUP" \
+      --filter-pattern "{ \$.detail.jobRunId = \"$RUN_ID\" }" --max-items 1 --query 'events[0].message' --output json 2>/dev/null || true)
+    [ -n "$alert" ] && [ "$alert" != "null" ] && break
+    sleep 10
+  done
+  if [ -n "$alert" ] && [ "$alert" != "null" ]; then
+    printf '%s' "$alert" | python3 -c 'import json,sys; e=json.loads(json.load(sys.stdin)); d=e["detail"]; print("  ALERT %s  %s: job %s run %s -> %s" % (e["time"], e["detail-type"], d["jobName"], d["jobRunId"], d["state"]))' \
+      || printf '  ALERT recorded for %s (raw event: aws logs tail %s --since 10m --profile %s)\n' "$RUN_ID" "$PIPELINE_ALERT_LOG_GROUP" "$AWS_SANDBOX_PROFILE"
+  else
+    warn "no alert event yet (EventBridge can take a minute): aws logs tail $PIPELINE_ALERT_LOG_GROUP --since 10m --profile $AWS_SANDBOX_PROFILE"
+  fi
+  printf '  Previous curated output for %s is untouched (checks run before any delete/write).\n' "$RUN_DATE"
+  die "pipeline failed; see docs/operations/data-pipeline-runbook.md#failure-handling"
+fi
 
 log "4. Curated output (read back as mortgage-analytics-role)"
 as_role s3api list-objects-v2 --bucket "$ANALYTICS_BUCKET" --prefix "${CURATED_PREFIX}date=$RUN_DATE/" \
@@ -98,8 +121,10 @@ cur, src = json.load(open(sys.argv[1])), json.load(open(sys.argv[2]))
 print(f"  curated rows {cur['rowCount']} (PostgreSQL mortgages {src['rowCounts']['mortgage']}), "
       f"balance {cur['outstandingBalanceTotal']} (PostgreSQL {src['mortgageOutstandingBalanceTotal']}), "
       f"delinquent {cur['delinquentCount']}, schema v{cur['schemaVersion']}, pipeline run {cur.get('pipelineRunId')}")
+if cur.get("schemaDrift"):
+    print(f"  schema drift tolerated ({cur.get('schemaDriftMode')} mode): {cur['schemaDrift']} - add to the schema in a PR")
 PY
 as_role s3api get-object --bucket "$ANALYTICS_BUCKET" --key "${CURATED_PREFIX}date=$RUN_DATE/part-0000.csv" "$WORK/curated.csv" >/dev/null
 printf '  first rows of part-0000.csv:\n'; head -4 "$WORK/curated.csv" | sed 's/^/    /'
 
-printf '\n\033[1;32mPipeline run complete.\033[0m Report API: GET :8000/api/v1/analytics/curated/delinquency-report (after compose-aws-up.sh)\n'
+printf '\n\033[1;32mPipeline run complete.\033[0m Next: bash scripts/aws/reconcile.sh   (report API: GET :8000/api/v1/analytics/curated/delinquency-report)\n'
