@@ -46,6 +46,7 @@ Role codes come from `guides/standards.md` and travel in the JWT `roles` claim.
 | --- | :-: | :-: | :-: | :-: | :-: | --- |
 | `GET /api/v1/analytics/*` (portfolio, delinquency, borrower risk, payment trends, event stats) | ✓ | ✓ | ✗ | ✓ | ✗ | ANALYTICS_READ |
 | `POST /api/v1/documents/upload` | ✓ | ✓ | ✓ | ✗ | ✗ | DOCUMENT_UPLOAD |
+| `GET /api/v1/lookup/mortgages/{id}` (M8, DynamoDB cache: status, balance, no PII) | ✓ | ✓ | ✓ | ✓ | ✗ | LOOKUP_READ |
 
 ### mortgage-knowledge-assistant (:8001, M7)
 

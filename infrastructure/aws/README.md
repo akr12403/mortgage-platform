@@ -13,8 +13,9 @@ AWS sandbox definitions for Milestone 8. Resources are created by the scripts in
 | `s3/lifecycle-*.json` | Dev cleanup rules per bucket (30-day expiry by prefix; abort stale multipart uploads) |
 | `lambda/doc_processor/` | Document processor Lambda: `handler.py` and its unit tests (Task 8.3) |
 | `dynamodb/document-metadata-table.json` | Metadata table written by the Lambda (PK `mortgageExternalId`, SK `s3Key`, TTL) |
+| `dynamodb/mortgage-lookup-table.json` | Mortgage lookup cache (PK `mortgageExternalId`), read by the analytics API, updated by events (Task 8.4) |
 
-Role-by-role detail: [docs/architecture/aws-iam-matrix.md](../../docs/architecture/aws-iam-matrix.md). Buckets and the upload path: [docs/architecture/aws-s3-document-storage.md](../../docs/architecture/aws-s3-document-storage.md). Document Lambda: [docs/architecture/aws-document-lambda.md](../../docs/architecture/aws-document-lambda.md).
+Role-by-role detail: [docs/architecture/aws-iam-matrix.md](../../docs/architecture/aws-iam-matrix.md). Buckets and the upload path: [docs/architecture/aws-s3-document-storage.md](../../docs/architecture/aws-s3-document-storage.md). Document Lambda: [docs/architecture/aws-document-lambda.md](../../docs/architecture/aws-document-lambda.md). Lookup table and partition key: [docs/architecture/aws-dynamodb-mortgage-lookup.md](../../docs/architecture/aws-dynamodb-mortgage-lookup.md); messaging decision: [ADR-003](../../docs/adr/ADR-003-sqs-only-messaging-no-kinesis.md).
 
 ## Prerequisites (once)
 
@@ -43,9 +44,11 @@ bash scripts/aws/iam-apply.sh                 # validate (IAM Access Analyzer) +
 bash scripts/aws/iam-verify.sh                # policy simulator: 39 allow/deny cases must match
 bash scripts/aws/s3-apply.sh                  # create/harden both buckets (Task 8.2)
 bash scripts/aws/s3-verify.sh                 # bucket config + live allow/deny tests as mortgage-analytics-role
-bash scripts/aws/compose-aws-up.sh            # analytics-service uploads to real S3 with 1-hour role credentials
+bash scripts/aws/compose-aws-up.sh            # analytics-service on real S3 + DynamoDB with 1-hour role credentials
 bash scripts/aws/lambda-deploy.sh             # document Lambda + metadata table + S3 trigger + error alarm (Task 8.3)
 bash scripts/aws/lambda-verify.sh             # live: valid PDF -> VALIDATED, fake PDF -> REJECTED, JSON log lines
+bash scripts/aws/lookup-deploy.sh             # DynamoDB mortgage lookup table (Task 8.4)
+bash scripts/aws/lookup-load.sh               # bulk-load it from local PostgreSQL as mortgage-analytics-role
 bash scripts/aws/teardown.sh                  # remove the Lambda pieces, empty + delete the buckets, delete the roles (asks first; --yes to skip)
 ```
 

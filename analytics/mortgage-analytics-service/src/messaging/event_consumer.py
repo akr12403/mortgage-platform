@@ -1,7 +1,8 @@
 """Analytics SQS consumer (M5 optional queue: capstone-mortgage-analytics-dev).
 
 SNS topic capstone-mortgage-lifecycle-dev fans out to this service's own queue. Each lifecycle
-event triggers a refresh of the cached portfolio snapshot. The consumer is idempotent (bounded
+event triggers a refresh of the cached portfolio snapshot and (M8 Task 8.4, when DYNAMODB_LOOKUP_TABLE is set) a
+conditional update of the mortgage's item in the DynamoDB lookup table. The consumer is idempotent (bounded
 eventId dedupe cache) and acknowledges a message only after it has been handled; failures stay
 on the queue and SQS moves them to capstone-mortgage-analytics-dlq-dev after maxReceiveCount.
 
@@ -56,8 +57,11 @@ def parse_envelope(body: str) -> dict:
 class AnalyticsEventProcessor:
     """Validates, dedupes and applies lifecycle events (refreshes the portfolio snapshot)."""
 
-    def __init__(self, refresh_snapshot: Callable[[], dict], dedupe_capacity: int = 10_000):
+    def __init__(self, refresh_snapshot: Callable[[], dict], dedupe_capacity: int = 10_000,
+                 on_event: Optional[Callable[[dict], str]] = None):
         self._refresh_snapshot = refresh_snapshot
+        self._on_event = on_event  # e.g. MortgageLookupStore.apply_event; must be idempotent
+        self._lookup_outcomes: dict[str, int] = {}
         self._seen: OrderedDict[str, None] = OrderedDict()
         self._capacity = dedupe_capacity
         self._lock = threading.Lock()
@@ -85,12 +89,17 @@ class AnalyticsEventProcessor:
             self._remember(event_id)
             return "SKIPPED"
 
+        # The lookup update runs first: if DynamoDB fails, the message is not acknowledged and SQS retries it
+        # (then dead-letters it), so the cache cannot silently miss an event.
+        lookup_outcome = self._on_event(event) if self._on_event else None
         snapshot = self._refresh_snapshot()
 
         with self._lock:
             self._snapshot = snapshot
             self._snapshot_refreshed_at = datetime.now(timezone.utc).isoformat()
             self._counts[event_type] = self._counts.get(event_type, 0) + 1
+            if lookup_outcome:
+                self._lookup_outcomes[lookup_outcome] = self._lookup_outcomes.get(lookup_outcome, 0) + 1
             self._last_event = {
                 "eventId": event_id,
                 "eventType": event_type,
@@ -122,6 +131,7 @@ class AnalyticsEventProcessor:
                 "lastEvent": self._last_event,
                 "portfolioSnapshot": self._snapshot,
                 "snapshotRefreshedAt": self._snapshot_refreshed_at,
+                "lookupUpdates": dict(self._lookup_outcomes),
             }
 
 

@@ -40,7 +40,12 @@ def start_analytics_consumer(app) -> Optional[SqsAnalyticsConsumer]:
         region_name=os.getenv("AWS_REGION", "us-east-1"),
         endpoint_url=os.getenv("AWS_ENDPOINT_URL") or None,
     )
-    processor = AnalyticsEventProcessor(refresh_portfolio_snapshot)
+    on_event = None
+    if os.getenv("DYNAMODB_LOOKUP_TABLE", "").strip():
+        from src.services.lookup_service import MortgageLookupStore
+        on_event = MortgageLookupStore().apply_event
+        logger.info("Lifecycle events also update DynamoDB table %s", os.getenv("DYNAMODB_LOOKUP_TABLE"))
+    processor = AnalyticsEventProcessor(refresh_portfolio_snapshot, on_event=on_event)
     consumer = SqsAnalyticsConsumer(
         queue_url=queue_url,
         processor=processor,

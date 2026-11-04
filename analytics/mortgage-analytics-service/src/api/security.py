@@ -24,6 +24,8 @@ ANALYTICS_READ = (ADMIN, UNDERWRITER, RISK_ANALYST)
 DOCUMENT_UPLOAD = (ADMIN, UNDERWRITER, SERVICING_AGENT)
 # Same group as Rbac.BORROWER_PII_READ in mortgage-service: who may see borrower names/contact details.
 BORROWER_PII_READ = (ADMIN, UNDERWRITER, SERVICING_AGENT)
+# M8 Task 8.4: cached mortgage status/balance by ID (no PII). Everyone who works a loan; not SUPPORT.
+LOOKUP_READ = (ADMIN, UNDERWRITER, SERVICING_AGENT, RISK_ANALYST)
 
 MIN_SECRET_BYTES = 32
 CLOCK_SKEW_SECONDS = 30
