@@ -2,6 +2,7 @@
 # M8 Task 8.1: prove least privilege with the IAM policy simulator (read-only; no resource needs to exist yet).
 #   bash scripts/aws/iam-verify.sh            # every case must match: what each role needs is allowed,
 #                                             # everything around it is denied. Exit 1 on any mismatch.
+#   ROLE=mortgage-analytics-role bash scripts/aws/iam-verify.sh   # one role only (demo step 1)
 # Evidence for docs/architecture/aws-iam-matrix.md#verification and demo step 1.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -69,6 +70,10 @@ mortgage-glue-etl-role|logs:PutLogEvents|$LOGS|deny||not the Lambda log group
 EOF
 )
 
+if [ -n "${ROLE:-}" ]; then
+  CASES=$(printf '%s\n' "$CASES" | awk -F'|' -v r="$ROLE" '$1 == r')
+  [ -n "$CASES" ] || die "no cases for role $ROLE (roles: $(roles | cut -d'|' -f1 | tr '\n' ' '))"
+fi
 log "Policy simulator ($(printf '%s\n' "$CASES" | wc -l | tr -d ' ') cases)"
 fails=0; current=""
 while IFS='|' read -r role action resource expect prefix why <&3; do
