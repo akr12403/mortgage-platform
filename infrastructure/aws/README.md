@@ -15,7 +15,7 @@ AWS sandbox definitions for Milestone 8. Resources are created by the scripts in
 | `dynamodb/document-metadata-table.json` | Metadata table written by the Lambda (PK `mortgageExternalId`, SK `s3Key`, TTL) |
 | `dynamodb/mortgage-lookup-table.json` | Mortgage lookup cache (PK `mortgageExternalId`), read by the analytics API, updated by events (Task 8.4) |
 
-Role-by-role detail: [docs/architecture/aws-iam-matrix.md](../../docs/architecture/aws-iam-matrix.md). Buckets and the upload path: [docs/architecture/aws-s3-document-storage.md](../../docs/architecture/aws-s3-document-storage.md). Document Lambda: [docs/architecture/aws-document-lambda.md](../../docs/architecture/aws-document-lambda.md). Lookup table and partition key: [docs/architecture/aws-dynamodb-mortgage-lookup.md](../../docs/architecture/aws-dynamodb-mortgage-lookup.md); messaging decision: [ADR-003](../../docs/adr/ADR-003-sqs-only-messaging-no-kinesis.md).
+Role-by-role detail: [docs/architecture/aws-iam-matrix.md](../../docs/architecture/aws-iam-matrix.md). Buckets and the upload path: [docs/architecture/aws-s3-document-storage.md](../../docs/architecture/aws-s3-document-storage.md). Document Lambda: [docs/architecture/aws-document-lambda.md](../../docs/architecture/aws-document-lambda.md). Data pipeline: [docs/operations/data-pipeline-runbook.md](../../docs/operations/data-pipeline-runbook.md) (Glue code in [`infrastructure/glue/`](../glue/)). Lookup table and partition key: [docs/architecture/aws-dynamodb-mortgage-lookup.md](../../docs/architecture/aws-dynamodb-mortgage-lookup.md); messaging decision: [ADR-003](../../docs/adr/ADR-003-sqs-only-messaging-no-kinesis.md).
 
 ## Prerequisites (once)
 
@@ -40,6 +40,7 @@ The scripts always use profile `capstone-dev` in `us-east-2`. They ignore `AWS_E
 ```bash
 python3 tests/security/test_iam_policies.py   # static least-privilege guard (no AWS needed, also runs in CI)
 python3 -m unittest discover -s infrastructure/aws/lambda/doc_processor/tests   # Lambda unit tests (CI too)
+python3 -m unittest discover -s infrastructure/glue/tests                        # Glue ETL unit tests (CI too)
 bash scripts/aws/iam-apply.sh                 # validate (IAM Access Analyzer) + create/update the roles
 bash scripts/aws/iam-verify.sh                # policy simulator: 39 allow/deny cases must match
 bash scripts/aws/s3-apply.sh                  # create/harden both buckets (Task 8.2)
@@ -49,6 +50,8 @@ bash scripts/aws/lambda-deploy.sh             # document Lambda + metadata table
 bash scripts/aws/lambda-verify.sh             # live: valid PDF -> VALIDATED, fake PDF -> REJECTED, JSON log lines
 bash scripts/aws/lookup-deploy.sh             # DynamoDB mortgage lookup table (Task 8.4)
 bash scripts/aws/lookup-load.sh               # bulk-load it from local PostgreSQL as mortgage-analytics-role
+bash scripts/aws/pipeline-deploy.sh           # Glue job + its script and schema in s3://…/glue/ (Task 8.5)
+bash scripts/aws/pipeline-run.sh              # PostgreSQL -> raw -> Glue -> curated for today (RUN_DATE=… to override)
 bash scripts/aws/teardown.sh                  # remove the Lambda pieces, empty + delete the buckets, delete the roles (asks first; --yes to skip)
 ```
 

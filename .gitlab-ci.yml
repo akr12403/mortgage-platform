@@ -93,6 +93,7 @@ static_sql_guard:
     - python3 tests/security/test_static_sql.py
     - python3 tests/security/test_iam_policies.py   # M8: IAM least-privilege guard
     - python3 -m unittest discover -s infrastructure/aws/lambda/doc_processor/tests   # M8: document Lambda
+    - python3 -m unittest discover -s infrastructure/glue/tests   # M8: Glue ETL
 
 # Trivy scans the poms offline against a local Maven repository (Maven Central rate-limits bulk POM fetching),
 # so Maven resolves the dependencies first. MAVEN_OPTS (top of file) points Maven at $CI_PROJECT_DIR/.m2/repository.

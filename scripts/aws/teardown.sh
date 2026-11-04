@@ -3,7 +3,7 @@
 #   bash scripts/aws/teardown.sh          # lists what will be deleted and asks for confirmation
 #   bash scripts/aws/teardown.sh --yes    # no prompt
 # Grows with each task: 8.1 IAM roles, 8.2 S3 buckets (emptied first), 8.3 Lambda + its log group, alarm, metadata
-# table and S3 trigger, 8.4 DynamoDB lookup table. Later: Glue.
+# table and S3 trigger, 8.4 DynamoDB lookup table, 8.5 Glue job and its log groups.
 # Only names from infrastructure/aws/ are touched; anything else in the account is left alone.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -22,6 +22,8 @@ aws_sb lambda get-function --function-name "$LAMBDA_FUNCTION" >/dev/null 2>&1 &&
 [ "$(aws_sb cloudwatch describe-alarms --alarm-names "$ALARM" --query 'length(MetricAlarms)' --output text)" != "0" ] \
   && { HAS_ALARM=1; printf '  alarm %s\n' "$ALARM"; }
 aws_sb dynamodb describe-table --table-name "$DOC_METADATA_TABLE" >/dev/null 2>&1 && { HAS_TABLE=1; printf '  DynamoDB table %s\n' "$DOC_METADATA_TABLE"; }
+HAS_GLUE=0
+aws_sb glue get-job --job-name "$GLUE_JOB" >/dev/null 2>&1 && { HAS_GLUE=1; printf '  Glue job %s (+ /aws-glue/python-jobs/* log groups)\n' "$GLUE_JOB"; }
 HAS_LOOKUP=0
 aws_sb dynamodb describe-table --table-name "$LOOKUP_TABLE" >/dev/null 2>&1 && { HAS_LOOKUP=1; printf '  DynamoDB table %s\n' "$LOOKUP_TABLE"; }
 BUCKETS=()
@@ -36,7 +38,7 @@ ROLE_NAMES=()
 while IFS='|' read -r name _ <&3; do
   if aws_sb iam get-role --role-name "$name" >/dev/null 2>&1; then ROLE_NAMES+=("$name"); printf '  IAM role %s\n' "$name"; fi
 done 3< <(roles)
-[ $((HAS_FN + HAS_LOGS + HAS_ALARM + HAS_TABLE + HAS_LOOKUP + ${#BUCKETS[@]} + ${#ROLE_NAMES[@]})) -gt 0 ] || { ok "nothing to delete"; exit 0; }
+[ $((HAS_FN + HAS_LOGS + HAS_ALARM + HAS_TABLE + HAS_LOOKUP + HAS_GLUE + ${#BUCKETS[@]} + ${#ROLE_NAMES[@]})) -gt 0 ] || { ok "nothing to delete"; exit 0; }
 
 if [ "$YES" != 1 ]; then
   read -r -p "  Delete these from account $ACCOUNT_ID? Type 'delete' to confirm: " answer
@@ -53,6 +55,14 @@ if [ $((HAS_FN + HAS_LOGS + HAS_ALARM + HAS_TABLE)) -gt 0 ]; then
   [ "$HAS_ALARM" = 1 ] && { aws_sb cloudwatch delete-alarms --alarm-names "$ALARM"; ok "deleted alarm $ALARM"; }
   [ "$HAS_LOGS" = 1 ] && { aws_sb logs delete-log-group --log-group-name "$LOG_GROUP"; ok "deleted log group $LOG_GROUP"; }
   [ "$HAS_TABLE" = 1 ] && { aws_sb dynamodb delete-table --table-name "$DOC_METADATA_TABLE" >/dev/null; ok "deleted table $DOC_METADATA_TABLE"; }
+fi
+
+if [ "$HAS_GLUE" = 1 ]; then
+  log "Data pipeline (Task 8.5)"
+  aws_sb glue delete-job --job-name "$GLUE_JOB" >/dev/null; ok "deleted Glue job $GLUE_JOB"
+  for group in /aws-glue/python-jobs/output /aws-glue/python-jobs/error; do
+    aws_sb logs delete-log-group --log-group-name "$group" 2>/dev/null && ok "deleted log group $group" || true
+  done
 fi
 
 if [ "$HAS_LOOKUP" = 1 ]; then
@@ -83,4 +93,4 @@ if [ ${#ROLE_NAMES[@]} -gt 0 ]; then
   done
 fi
 
-printf '\n\033[1;32mTeardown complete.\033[0m Re-create with iam-apply.sh, s3-apply.sh, lambda-deploy.sh, lookup-deploy.sh.\n'
+printf '\n\033[1;32mTeardown complete.\033[0m Re-create with iam-apply.sh, s3-apply.sh, lambda-deploy.sh, lookup-deploy.sh, pipeline-deploy.sh.\n'

@@ -1,5 +1,5 @@
-# M8 override (Tasks 8.2 + 8.4): analytics-service uses REAL AWS for S3 (document uploads) and DynamoDB (mortgage
-# lookup + event-driven cache updates); everything else (PostgreSQL, SNS/SQS on LocalStack, the other services) is
+# M8 override (Tasks 8.2, 8.4, 8.5): analytics-service uses REAL AWS for S3 (document uploads, curated report reads)
+# and DynamoDB (mortgage lookup + event-driven cache updates); everything else (PostgreSQL, SNS/SQS on LocalStack, the other services) is
 # unchanged. Do not run this file directly. Use:
 #   aws login --profile capstone-dev --region us-east-2
 #   bash scripts/aws/compose-aws-up.sh
@@ -15,6 +15,7 @@ services:
       S3_ENDPOINT_URL: ""
       S3_REGION: ${M8_AWS_REGION:-us-east-2}
       S3_BUCKET_DOCUMENTS: ${M8_DOCS_BUCKET:-capstone-mortgage-docs-dev}
+      S3_BUCKET_ANALYTICS: ${M8_ANALYTICS_BUCKET:-capstone-mortgage-analytics-dev}
       DYNAMODB_ENDPOINT_URL: ""
       DYNAMODB_REGION: ${M8_AWS_REGION:-us-east-2}
       DYNAMODB_LOOKUP_TABLE: ${M8_LOOKUP_TABLE:-CapstoneMortgageLookup-dev}

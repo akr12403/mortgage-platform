@@ -168,6 +168,83 @@ paths:
                     description: M8 Task 8.4 DynamoDB lookup update outcomes (only when DYNAMODB_LOOKUP_TABLE is set)
                     additionalProperties: { type: integer }
                     example: { UPDATED: 3, STALE: 1 }
+  /api/v1/analytics/curated/delinquency-report:
+    get:
+      summary: Delinquency report from the curated data lake zone (M8 Task 8.5)
+      description: >-
+        Reads s3://capstone-mortgage-analytics-dev/curated/delinquency_report/date=YYYY-MM-DD/ (written only by the
+        Glue job) and summarises it. Latest partition when date is omitted. Requires the AWS mode
+        (scripts/aws/compose-aws-up.sh); otherwise 503.
+      operationId: getCuratedDelinquencyReport
+      x-roles: [ADMIN, UNDERWRITER, RISK_ANALYST]
+      parameters:
+        - name: date
+          in: query
+          required: false
+          schema: { type: string, format: date, example: '2026-11-04' }
+      responses:
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }   # CURATED_SCHEMA_MISMATCH
+        '503': { $ref: '#/components/responses/Error' }   # CURATED_UNAVAILABLE
+        '200':
+          description: Report summary for one partition
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reportDate: { type: string, format: date }
+                  mortgageCount: { type: integer }
+                  delinquentCount: { type: integer }
+                  delinquencyRate: { type: number, example: 0.2222 }
+                  outstandingBalanceTotal: { type: number }
+                  balanceAtRisk: { type: number, description: Outstanding balance of delinquent mortgages }
+                  byRiskBucket:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties: { count: { type: integer }, outstandingBalance: { type: number } }
+                    example: { CURRENT: { count: 14, outstandingBalance: 4200000.0 }, DPD_90_PLUS: { count: 1, outstandingBalance: 277150.0 } }
+                  bySeverity: { type: object, additionalProperties: { type: integer } }
+                  mostPastDue:
+                    type: array
+                    maxItems: 5
+                    items:
+                      type: object
+                      properties:
+                        mortgageExternalId: { type: string }
+                        daysPastDue: { type: integer }
+                        severity: { type: string }
+                        outstandingBalance: { type: number }
+                  source:
+                    type: object
+                    properties:
+                      location: { type: string, example: 's3://capstone-mortgage-analytics-dev/curated/delinquency_report/date=2026-11-04/part-0000.csv' }
+                      dataset: { type: string }
+                      schemaVersion: { type: integer }
+                      generatedAt: { type: string, format: date-time }
+                      pipelineRunId: { type: string, example: pr-20261104T005200Z-1a2b3c4d }
+                      manifestRowCount: { type: integer }
+  /api/v1/analytics/curated/delinquency-report/dates:
+    get:
+      summary: Curated report partitions available
+      operationId: listCuratedDelinquencyReportDates
+      x-roles: [ADMIN, UNDERWRITER, RISK_ANALYST]
+      responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/Error' }
+        '200':
+          description: Dates with a curated partition, ascending
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dates: { type: array, items: { type: string, format: date } }
   /api/v1/lookup/mortgages/{mortgageExternalId}:
     get:
       summary: Mortgage status and balance by ID from the DynamoDB lookup table (M8 Task 8.4)

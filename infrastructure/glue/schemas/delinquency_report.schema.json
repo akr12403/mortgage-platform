@@ -1,0 +1,29 @@
+{
+  "name": "delinquency_report",
+  "version": 1,
+  "description": "M8 Task 8.5 curated zone: one row per mortgage on the report date, with its delinquency position. Written by Glue job capstone-mortgage-delinquency-etl-dev to s3://capstone-mortgage-analytics-dev/curated/delinquency_report/date=YYYY-MM-DD/. No borrower PII (business IDs only).",
+  "format": { "type": "csv", "header": true, "delimiter": ",", "encoding": "utf-8", "decimalPlaces": 2 },
+  "primaryKey": ["mortgage_external_id"],
+  "columns": [
+    { "name": "report_date", "type": "date", "nullable": false, "description": "Export date (partition value)" },
+    { "name": "mortgage_external_id", "type": "string", "nullable": false, "pattern": "^MTG-[0-9]{4}$" },
+    { "name": "borrower_external_id", "type": "string", "nullable": false, "pattern": "^BOR-[0-9]{3}$" },
+    { "name": "status", "type": "string", "nullable": false, "enum": ["PENDING", "ACTIVE", "DELINQUENT", "CLOSED"] },
+    { "name": "original_amount", "type": "decimal(15,2)", "nullable": false },
+    { "name": "outstanding_balance", "type": "decimal(15,2)", "nullable": false },
+    { "name": "is_delinquent", "type": "boolean", "nullable": false, "description": "A delinquency record exists" },
+    { "name": "days_past_due", "type": "integer", "nullable": false, "description": "0 when not delinquent" },
+    { "name": "delinquency_severity", "type": "string", "nullable": false, "enum": ["NONE", "MODERATE", "SEVERE", "CRITICAL"] },
+    { "name": "delinquent_since", "type": "date", "nullable": true },
+    { "name": "risk_bucket", "type": "string", "nullable": false, "enum": ["CURRENT", "DPD_30_59", "DPD_60_89", "DPD_90_PLUS"] },
+    { "name": "last_payment_date", "type": "date", "nullable": true, "description": "Latest paid_date of a POSTED payment" },
+    { "name": "posted_payment_total", "type": "decimal(15,2)", "nullable": false, "description": "Sum of POSTED payments" }
+  ],
+  "sources": {
+    "_comment": "Input contract: raw/pg-export/date=YYYY-MM-DD/<table>.csv must contain at least these columns. A missing column fails the job.",
+    "mortgage": ["id", "mortgage_external_id", "borrower_id", "status", "original_amount", "outstanding_balance", "origination_date"],
+    "borrower": ["id", "borrower_external_id"],
+    "delinquency": ["mortgage_id", "delinquent_since", "days_past_due", "severity"],
+    "payment": ["mortgage_id", "due_date", "paid_date", "amount", "status"]
+  }
+}

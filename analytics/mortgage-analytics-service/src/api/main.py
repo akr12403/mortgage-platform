@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from src.api.routes import analytics, documents, lookup
+from src.api.routes import analytics, curated, documents, lookup
 from src.messaging.bootstrap import start_analytics_consumer
 from src.api.security import validate_settings
 from src.api.dependencies import validate_db_settings
@@ -129,3 +129,4 @@ def health_check():
 app.include_router(analytics.router)
 app.include_router(documents.router)
 app.include_router(lookup.router)
+app.include_router(curated.router)
