@@ -15,7 +15,7 @@ The Enterprise Mortgage Platform is an event-driven, microservices-based system 
 | **M5** | Microservices & Events | 6 | `docs/milestones/m05.md` | **Completed** |
 | **M6** | Security Engineering | 7–8 | `docs/milestones/m06.md` | **Completed** |
 | **M7** | AI / RAG Assistant | 9 | `docs/milestones/m07.md` | **Completed** |
-| **M8** | AWS & Data Platform | 10 | `docs/milestones/m08.md` | In progress |
+| **M8** | AWS & Data Platform | 10 | `docs/milestones/m08.md` | **Completed** |
 | **M9** | CI/CD, Terraform, Observability | 11 | `docs/milestones/m09.md` | Planned |
 | **M10** | Testing & Production Readiness | 12 | `docs/milestones/m10.md` | Planned |
 
@@ -253,6 +253,60 @@ M7 adds a **mortgage knowledge assistant** (`ai/mortgage-knowledge-assistant/`, 
 - Approval rules are keyword-based, and pattern redaction cannot detect names or addresses; both are recorded as residual risks R-18 and R-19.
 - Rate limits are in-memory per container, as for the other services (shared throttling in M9).
 - The peer or instructor review box in the M7 checklist is completed at the M7 review session.
+
+---
+
+## 🚀 Milestone 8 Status: COMPLETED — AWS & DATA PLATFORM
+
+M8 runs the platform's cloud pieces in an **AWS sandbox**: a Free-plan project in `us-east-2`, so it cannot be charged. Everything is created by idempotent scripts in `scripts/aws/` from the definitions in `infrastructure/`, with **no access keys anywhere**: developers use `aws login`, and workloads use role credentials.
+
+- **IAM least privilege (8.1):** 5 workload roles with one inline policy each on exact ARNs, a CI policy guard, IAM Access Analyzer validation, and 39 policy-simulator cases. It includes the over-permissioned policy exercise.
+- **S3 (8.2):** documents and data-lake buckets with Block Public Access, SSE-S3, a TLS-only policy and a dev lifecycle rule. The analytics upload path runs on 1-hour role credentials.
+- **Lambda (8.3):** S3 upload → type validation → DynamoDB metadata → JSON log line that carries the upload's correlation ID; error alarm stub.
+- **Messaging + DynamoDB (8.4):** [ADR-003](docs/adr/ADR-003-sqs-only-messaging-no-kinesis.md) (SNS → SQS only, no Kinesis), and a `CapstoneMortgageLookup-dev` lookup with a partition-key design, bulk load, a read API and conditional event-driven updates.
+- **Pipeline (8.5):** PostgreSQL export → S3 raw → **Glue** (schema-checked) → S3 curated → analytics report API, with a runbook.
+- **Reconciliation + schema drift (8.6):** 8 checks (rows 0 difference, balance ±0.01, …) and a fail-with-alert drift policy with an opt-in `evolve` mode.
+
+| Area | Where |
+| --- | --- |
+| Definitions and scripts | [infrastructure/aws/](infrastructure/aws/README.md), [infrastructure/glue/](infrastructure/glue/README.md), `scripts/aws/` |
+| IAM (8.1) | [docs/architecture/aws-iam-matrix.md](docs/architecture/aws-iam-matrix.md) |
+| S3 and the upload path (8.2) | [docs/architecture/aws-s3-document-storage.md](docs/architecture/aws-s3-document-storage.md) |
+| Lambda (8.3) | [docs/architecture/aws-document-lambda.md](docs/architecture/aws-document-lambda.md) |
+| Messaging and DynamoDB (8.4) | [ADR-003](docs/adr/ADR-003-sqs-only-messaging-no-kinesis.md), [docs/architecture/aws-dynamodb-mortgage-lookup.md](docs/architecture/aws-dynamodb-mortgage-lookup.md) |
+| Pipeline, reconciliation, drift (8.5–8.6) | [docs/operations/data-pipeline-runbook.md](docs/operations/data-pipeline-runbook.md) |
+| Compute choices (Lambda / ECS / EKS, Glue / EMR) | [docs/architecture/aws-compute-awareness.md](docs/architecture/aws-compute-awareness.md) |
+| Security review | threats T-33–T-40 in [threat-model.md](docs/security/threat-model.md), risks R-21–R-24 (and R-08 lowered) in [risk-register.md](docs/security/risk-register.md) |
+| Demo & sign-off (validation + Definition of Done → evidence) | [docs/operations/m8-demo-checklist.md](docs/operations/m8-demo-checklist.md), `bash scripts/m8-demo.sh` |
+
+```bash
+aws login --profile capstone-dev --region us-east-2
+bash scripts/aws/iam-apply.sh && bash scripts/aws/s3-apply.sh && bash scripts/aws/lambda-deploy.sh
+bash scripts/aws/lookup-deploy.sh && bash scripts/aws/lookup-load.sh && bash scripts/aws/pipeline-deploy.sh
+PAUSE=1 bash scripts/m8-demo.sh        # the 5-step milestone demo
+bash scripts/aws/teardown.sh           # remove everything M8 created
+```
+
+### Verification evidence (2026-11-02 to 2026-11-04)
+
+| Check | Result |
+| --- | --- |
+| IAM policy simulator | **39/39** cases match (needed actions allowed, everything around them denied) |
+| S3 controls | **22/22**: 14 configuration + 8 live (upload encrypted; read-back, delete, outside prefix, plain HTTP and anonymous GET all denied) |
+| Document Lambda | real PDF `VALIDATED`, fake PDF `REJECTED [MAGIC_BYTES_MISMATCH]`; the API upload's correlation ID appears in the Lambda log line |
+| DynamoDB lookup | 18/18 items loaded; MTG-1002 279,000.00 → **277,150.00** about 1 s after a payment event |
+| Pipeline | 18 PostgreSQL rows → 18 curated rows, 5,169,399.96 both sides; Glue run 12 s; idempotent re-runs |
+| Reconciliation | **PASS** (8 checks), WARN `DQ_SEVERITY_BAND` for MTG-1005 (source data, B-19) |
+| Schema drift | `fail`: FAILED + EventBridge alert in about 70 s, curated untouched · `evolve`: SUCCEEDED, drift recorded |
+| Tests | analytics **114 passed**; Lambda 9, Glue ETL 13 and the IAM/S3 policy guard 9, all in CI |
+| Security gates on every M8 PR (#101–#106) | secrets, SAST (+ the IAM guard and Lambda/Glue tests) and dependencies all green |
+
+**Known limits (stated, not hidden):**
+
+- The services still run locally. Real AWS is used for S3, DynamoDB, Lambda and Glue; SNS/SQS stay on LocalStack (ADR-003). Moving the services to ECS is M9 ([compute awareness](docs/architecture/aws-compute-awareness.md)).
+- Deploys use the developer's admin session; a CI deploy role is backlog B-20. Alarms and alerts have no notification target yet (SNS/email in M9).
+- Commitments moved to M9: the AI key's move to Secrets Manager (R-20) and malware scanning of uploads (B-13).
+- The peer or instructor review box in the M8 checklist is completed at the M8 review session.
 
 ---
 
