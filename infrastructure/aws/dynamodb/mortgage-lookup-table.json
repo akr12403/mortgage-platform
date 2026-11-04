@@ -1,0 +1,17 @@
+{
+  "_comment": "M8 Task 8.4: one item per mortgage, read by key (GetItem). PK mortgageExternalId: high cardinality, every read and write addresses exactly one mortgage, keys are hashed so sequential IDs spread evenly. No sort key, no GSI (no access pattern needs one yet). On-demand capacity. Partition-key reasoning: docs/architecture/aws-dynamodb-mortgage-lookup.md",
+  "TableName": "${LOOKUP_TABLE}",
+  "AttributeDefinitions": [
+    { "AttributeName": "mortgageExternalId", "AttributeType": "S" }
+  ],
+  "KeySchema": [
+    { "AttributeName": "mortgageExternalId", "KeyType": "HASH" }
+  ],
+  "BillingMode": "PAY_PER_REQUEST",
+  "SSESpecification": { "Enabled": false },
+  "Tags": [
+    { "Key": "Project", "Value": "${TAG_PROJECT}" },
+    { "Key": "Environment", "Value": "${TAG_ENVIRONMENT}" },
+    { "Key": "Team", "Value": "${TAG_TEAM}" }
+  ]
+}

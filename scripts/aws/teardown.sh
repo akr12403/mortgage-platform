@@ -3,7 +3,7 @@
 #   bash scripts/aws/teardown.sh          # lists what will be deleted and asks for confirmation
 #   bash scripts/aws/teardown.sh --yes    # no prompt
 # Grows with each task: 8.1 IAM roles, 8.2 S3 buckets (emptied first), 8.3 Lambda + its log group, alarm, metadata
-# table and S3 trigger. Later: DynamoDB lookup, Glue, SQS/SNS.
+# table and S3 trigger, 8.4 DynamoDB lookup table. Later: Glue.
 # Only names from infrastructure/aws/ are touched; anything else in the account is left alone.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -22,6 +22,8 @@ aws_sb lambda get-function --function-name "$LAMBDA_FUNCTION" >/dev/null 2>&1 &&
 [ "$(aws_sb cloudwatch describe-alarms --alarm-names "$ALARM" --query 'length(MetricAlarms)' --output text)" != "0" ] \
   && { HAS_ALARM=1; printf '  alarm %s\n' "$ALARM"; }
 aws_sb dynamodb describe-table --table-name "$DOC_METADATA_TABLE" >/dev/null 2>&1 && { HAS_TABLE=1; printf '  DynamoDB table %s\n' "$DOC_METADATA_TABLE"; }
+HAS_LOOKUP=0
+aws_sb dynamodb describe-table --table-name "$LOOKUP_TABLE" >/dev/null 2>&1 && { HAS_LOOKUP=1; printf '  DynamoDB table %s\n' "$LOOKUP_TABLE"; }
 BUCKETS=()
 for bucket in "$DOCS_BUCKET" "$ANALYTICS_BUCKET"; do
   if aws_sb s3api head-bucket --bucket "$bucket" >/dev/null 2>&1; then
@@ -34,7 +36,7 @@ ROLE_NAMES=()
 while IFS='|' read -r name _ <&3; do
   if aws_sb iam get-role --role-name "$name" >/dev/null 2>&1; then ROLE_NAMES+=("$name"); printf '  IAM role %s\n' "$name"; fi
 done 3< <(roles)
-[ $((HAS_FN + HAS_LOGS + HAS_ALARM + HAS_TABLE + ${#BUCKETS[@]} + ${#ROLE_NAMES[@]})) -gt 0 ] || { ok "nothing to delete"; exit 0; }
+[ $((HAS_FN + HAS_LOGS + HAS_ALARM + HAS_TABLE + HAS_LOOKUP + ${#BUCKETS[@]} + ${#ROLE_NAMES[@]})) -gt 0 ] || { ok "nothing to delete"; exit 0; }
 
 if [ "$YES" != 1 ]; then
   read -r -p "  Delete these from account $ACCOUNT_ID? Type 'delete' to confirm: " answer
@@ -51,6 +53,11 @@ if [ $((HAS_FN + HAS_LOGS + HAS_ALARM + HAS_TABLE)) -gt 0 ]; then
   [ "$HAS_ALARM" = 1 ] && { aws_sb cloudwatch delete-alarms --alarm-names "$ALARM"; ok "deleted alarm $ALARM"; }
   [ "$HAS_LOGS" = 1 ] && { aws_sb logs delete-log-group --log-group-name "$LOG_GROUP"; ok "deleted log group $LOG_GROUP"; }
   [ "$HAS_TABLE" = 1 ] && { aws_sb dynamodb delete-table --table-name "$DOC_METADATA_TABLE" >/dev/null; ok "deleted table $DOC_METADATA_TABLE"; }
+fi
+
+if [ "$HAS_LOOKUP" = 1 ]; then
+  log "Mortgage lookup (Task 8.4)"
+  aws_sb dynamodb delete-table --table-name "$LOOKUP_TABLE" >/dev/null; ok "deleted table $LOOKUP_TABLE"
 fi
 
 if [ ${#BUCKETS[@]} -gt 0 ]; then
@@ -76,4 +83,4 @@ if [ ${#ROLE_NAMES[@]} -gt 0 ]; then
   done
 fi
 
-printf '\n\033[1;32mTeardown complete.\033[0m Re-create with iam-apply.sh, s3-apply.sh, lambda-deploy.sh.\n'
+printf '\n\033[1;32mTeardown complete.\033[0m Re-create with iam-apply.sh, s3-apply.sh, lambda-deploy.sh, lookup-deploy.sh.\n'

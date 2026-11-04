@@ -1,9 +1,11 @@
-# M8 Task 8.2 override: analytics-service stores documents in the REAL S3 sandbox bucket; everything else
-# (PostgreSQL, SNS/SQS on LocalStack, the other services) is unchanged. Do not run this file directly. Use:
+# M8 override (Tasks 8.2 + 8.4): analytics-service uses REAL AWS for S3 (document uploads) and DynamoDB (mortgage
+# lookup + event-driven cache updates); everything else (PostgreSQL, SNS/SQS on LocalStack, the other services) is
+# unchanged. Do not run this file directly. Use:
 #   aws login --profile capstone-dev --region us-east-2
 #   bash scripts/aws/compose-aws-up.sh
 # That script assumes mortgage-analytics-role for 1 hour and passes the temporary credentials through the
-# environment only (never written to a file). When they expire, uploads return 502 S3_UPLOAD_ERROR: run it again.
+# environment only (never written to a file). When they expire, uploads return 502 S3_UPLOAD_ERROR, lookups return
+# 503 LOOKUP_UNAVAILABLE and events stay on the queue for retry: run the script again.
 services:
   analytics-service:
     environment:
@@ -13,3 +15,6 @@ services:
       S3_ENDPOINT_URL: ""
       S3_REGION: ${M8_AWS_REGION:-us-east-2}
       S3_BUCKET_DOCUMENTS: ${M8_DOCS_BUCKET:-capstone-mortgage-docs-dev}
+      DYNAMODB_ENDPOINT_URL: ""
+      DYNAMODB_REGION: ${M8_AWS_REGION:-us-east-2}
+      DYNAMODB_LOOKUP_TABLE: ${M8_LOOKUP_TABLE:-CapstoneMortgageLookup-dev}

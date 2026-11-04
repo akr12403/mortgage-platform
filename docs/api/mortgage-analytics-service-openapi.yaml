@@ -163,6 +163,54 @@ paths:
                     allOf: [{ $ref: '#/components/schemas/PortfolioSummary' }]
                     nullable: true
                   snapshotRefreshedAt: { type: string, format: date-time, nullable: true }
+                  lookupUpdates:
+                    type: object
+                    description: M8 Task 8.4 DynamoDB lookup update outcomes (only when DYNAMODB_LOOKUP_TABLE is set)
+                    additionalProperties: { type: integer }
+                    example: { UPDATED: 3, STALE: 1 }
+  /api/v1/lookup/mortgages/{mortgageExternalId}:
+    get:
+      summary: Mortgage status and balance by ID from the DynamoDB lookup table (M8 Task 8.4)
+      description: >-
+        Single GetItem on CapstoneMortgageLookup-dev (PK mortgageExternalId), eventually consistent. The table is
+        bulk-loaded from PostgreSQL and kept current by lifecycle events; no borrower PII is stored. Available when
+        the service runs with DYNAMODB_LOOKUP_TABLE (scripts/aws/compose-aws-up.sh); otherwise 503.
+      operationId: lookupMortgage
+      x-roles: [ADMIN, UNDERWRITER, SERVICING_AGENT, RISK_ANALYST]
+      parameters:
+        - name: mortgageExternalId
+          in: path
+          required: true
+          schema: { type: string, pattern: '^MTG-\d{4}$', example: MTG-1002 }
+      responses:
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }   # LOOKUP_UNAVAILABLE: not configured, unreachable or credentials expired
+        '200':
+          description: Cached mortgage state
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [mortgageExternalId, status, outstandingBalance, lookupSource]
+                properties:
+                  mortgageExternalId: { type: string, example: MTG-1002 }
+                  borrowerExternalId: { type: string, example: BOR-002 }
+                  status: { type: string, enum: [PENDING, ACTIVE, DELINQUENT, CLOSED] }
+                  outstandingBalance: { type: number, example: 198250.5 }
+                  originalAmount: { type: number }
+                  originationDate: { type: string, format: date }
+                  lastPaymentDate: { type: string, format: date }
+                  daysPastDue: { type: integer }
+                  delinquencySeverity: { type: string, enum: [MODERATE, SEVERE, CRITICAL] }
+                  lastEventType: { type: string, example: PaymentReceived }
+                  lastEventAt: { type: string, format: date-time }
+                  updatedAt: { type: string, format: date-time }
+                  source: { type: string, enum: [pg-bulk-load, event] }
+                  lookupSource: { type: string, enum: [dynamodb] }
+                  lookupMs: { type: number, example: 12.4 }
   /api/v1/documents/upload:
     post:
       summary: Upload a mortgage document to S3 and record its metadata (M3)
