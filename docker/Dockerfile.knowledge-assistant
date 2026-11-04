@@ -32,6 +32,9 @@ RUN apt-get update \
     && groupadd --system app && useradd --system --gid app --no-create-home app
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /opt/tiktoken /opt/tiktoken
+# The runtime never installs packages: remove pip (system + venv) and the CA bundle it vendors, which is pinned to
+# pip's release and goes stale (GHSA-6q48-6c7w-9gw2 in pip's own certifi). The app uses the venv's certifi.
+RUN /opt/venv/bin/python -m pip uninstall -y -q pip && /usr/local/bin/python -m pip uninstall -y -q pip
 ENV PATH=/opt/venv/bin:$PATH \
     TIKTOKEN_CACHE_DIR=/opt/tiktoken \
     PYTHONDONTWRITEBYTECODE=1 \
