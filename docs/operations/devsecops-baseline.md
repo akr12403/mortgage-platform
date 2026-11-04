@@ -19,7 +19,7 @@ Task 2.6 (M2) set up the repository controls. **Task 6.7 (M6)** adds blocking se
 
 ## Security gates (Task 6.7)
 
-The gates are defined once in [`scripts/security-gates.sh`](../../scripts/security-gates.sh) and called from both [`.github/workflows/security-gates.yml`](../../.github/workflows/security-gates.yml) (runs on this GitHub repo) and [`.gitlab-ci.yml`](../../.gitlab-ci.yml) (the curriculum's GitLab pipeline). Locally, the same command runs each tool in its pinned Docker image, so a laptop result matches CI.
+The gates are defined once in [`scripts/security-gates.sh`](../../scripts/security-gates.sh) and called from both [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) (M9: the security jobs are part of the full pipeline, [cicd.md](cicd.md)) (runs on this GitHub repo) and [`.gitlab-ci.yml`](../../.gitlab-ci.yml) (the curriculum's GitLab pipeline). Locally, the same command runs each tool in its pinned Docker image, so a laptop result matches CI.
 
 | Gate | Tool (pinned) | Scope | Fails the pipeline when | Config |
 | --- | --- | --- | --- | --- |

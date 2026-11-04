@@ -1,140 +1,163 @@
-# GitLab CI. M6 Task 6.7 adds the blocking security gates (secret detection, SAST, dependency scanning).
-# The gates are defined once in scripts/security-gates.sh and also run in .github/workflows/security-gates.yml.
-# Merge blocking: Settings > Merge requests > "Pipelines must succeed" + protected develop/main
-# (docs/operations/devsecops-baseline.md#how-a-merge-is-blocked). Full deploy pipeline: Milestone 9.
+# GitLab CI equivalent of .github/workflows/ci.yml (M9 Task 9.1). The project runs on GitHub Actions; this file
+# documents the same pipeline for GitLab and calls the same scripts, so both behave identically.
+# Guide: docs/operations/cicd.md. Merge blocking: Settings > Merge requests > "Pipelines must succeed".
+#
+#   build -> test -> security (sast, sca, secrets) -> container (build, scan) -> integration -> publish -> deploy
 
 stages:
-  - validate
+  - build
   - test
   - security
-  - build
+  - container
+  - integration
+  - publish
 
 variables:
   MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+  IMAGE_PREFIX: "$CI_REGISTRY_IMAGE"          # GitLab container registry of this project
+  IMAGE_TAG: "sha-$CI_COMMIT_SHA"
+  DOCKER_TLS_CERTDIR: "/certs"
 
+cache:
+  key: maven
+  paths: [.m2/repository]
+
+.docker:
+  image: docker:28
+  services: ["docker:28-dind"]
+  before_script:
+    - apk add --no-cache bash python3 curl
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+
+# ------------------------------------------------------------------ Build
+build:
+  stage: build
+  image: maven:3.9-eclipse-temurin-17
+  script:
+    - (cd services/mortgage-service && mvn -B -q -DskipTests package)
+    - (cd services/servicing-service && mvn -B -q -DskipTests package)
+
+build-ts:
+  stage: build
+  image: node:22
+  script:
+    - cd clients/mortgage-api-consumer && npm ci --no-audit --no-fund && npm run build
+
+# ------------------------------------------------------------------ Unit tests (JUnit reports shown in the MR)
+.unit:
+  stage: test
+  script:
+    - bash scripts/ci/unit-tests.sh "$SUITE"
+  artifacts:
+    when: always
+    reports:
+      junit: reports/junit/*.xml
+    expire_in: 30 days
+
+unit-java:
+  extends: .unit
+  image: maven:3.9-eclipse-temurin-17
+  parallel:
+    matrix:
+      - SUITE: [mortgage-service, servicing-service]
+
+unit-python:
+  extends: [.unit, .docker]
+  parallel:
+    matrix:
+      - SUITE: [analytics-service, knowledge-assistant]
+
+unit-ts:
+  extends: .unit
+  image: node:22
+  variables: { SUITE: ts-client }
+
+unit-repo-checks:
+  extends: .unit
+  image: python:3.14.7-slim
+  variables: { SUITE: repo-checks }
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq bash >/dev/null
+
+# ------------------------------------------------------------------ Security gates (M6 Task 6.7)
 secret_detection:
-  stage: validate
-  image:
-    name: zricethezav/gitleaks:v8.30.1
-    entrypoint: [""]
-  variables:
-    GIT_DEPTH: "0"            # full history: a secret removed later is still a leak
+  stage: security
+  image: { name: "zricethezav/gitleaks:v8.30.1", entrypoint: [""] }
+  variables: { GIT_DEPTH: "0" }
   script:
     - sh scripts/security-gates.sh secrets
     - sh scripts/security-gates.sh selftest
-  artifacts:
-    when: always
-    paths: [reports/security/gitleaks.json]
-    expire_in: 30 days
-
-python-test:
-  stage: test
-  image: python:3.14.7-slim
-  script:
-    - cd analytics/mortgage-analytics-service && pip install -r requirements-dev.txt && python -m pytest -q tests
-  rules:
-    - changes:
-        - analytics/mortgage-analytics-service/**/*
-
-assistant-test:
-  stage: test
-  image: python:3.14.7-slim
-  script:
-    - cd ai/mortgage-knowledge-assistant && pip install -r requirements-dev.txt && python -m pytest -q tests
-  rules:
-    - changes:
-        - ai/mortgage-knowledge-assistant/**/*
-
-java-test-mortgage:
-  stage: test
-  image: maven:3.9-eclipse-temurin-17
-  script:
-    - cd services/mortgage-service && mvn -B test
-  rules:
-    - changes:
-        - services/mortgage-service/**/*
-        - docs/architecture/events/**/*
-
-java-test-servicing:
-  stage: test
-  image: maven:3.9-eclipse-temurin-17
-  script:
-    - cd services/servicing-service && mvn -B test
-  rules:
-    - changes:
-        - services/servicing-service/**/*
-
-contract-test:
-  stage: test
-  image: python:3.14.7-slim
-  script:
-    - pip install pytest jsonschema && python -m pytest -q tests/contract
-  rules:
-    - changes:
-        - docs/architecture/**/*
-        - docs/api/**/*
-        - services/**/events/**/*
-        - services/servicing-service/**/*
+  artifacts: { when: always, paths: [reports/security/gitleaks.json], expire_in: 30 days }
 
 sast:
   stage: security
   image: semgrep/semgrep:1.178.0
   script:
     - sh scripts/security-gates.sh sast
-  artifacts:
-    when: always
-    paths: [reports/security/semgrep.json]
-    expire_in: 30 days
-
-static_sql_guard:
-  stage: security
-  image: python:3.14.7-slim
-  script:
-    - python3 tests/security/test_static_sql.py
-    - python3 tests/security/test_iam_policies.py   # M8: IAM least-privilege guard
-    - python3 -m unittest discover -s infrastructure/aws/lambda/doc_processor/tests   # M8: document Lambda
-    - python3 -m unittest discover -s infrastructure/glue/tests   # M8: Glue ETL
-
-# Trivy scans the poms offline against a local Maven repository (Maven Central rate-limits bulk POM fetching),
-# so Maven resolves the dependencies first. MAVEN_OPTS (top of file) points Maven at $CI_PROJECT_DIR/.m2/repository.
-dependency_resolve:
-  stage: security
-  image: maven:3.9-eclipse-temurin-17
-  script:
-    - (cd services/mortgage-service && mvn -B -q dependency:resolve)
-    - (cd services/servicing-service && mvn -B -q dependency:resolve)
-  artifacts:
-    paths: [.m2/repository]
-    expire_in: 1 hour
+  artifacts: { when: always, paths: [reports/security/semgrep.json], expire_in: 30 days }
 
 dependency_scanning:
   stage: security
-  needs: [dependency_resolve]
-  image:
-    name: aquasec/trivy:0.75.0
-    entrypoint: [""]
+  extends: .docker
+  script:
+    - sh scripts/security-gates.sh sca
+  artifacts: { when: always, paths: ["reports/security/*.txt"], expire_in: 30 days }
+
+# ------------------------------------------------------------------ Container build + scan
+container_build:
+  stage: container
+  extends: .docker
+  parallel:
+    matrix:
+      - SERVICE: [mortgage-service, servicing-service, analytics-service, knowledge-assistant]
+  script:
+    - TARGET=""; case "$SERVICE" in analytics-service|knowledge-assistant) TARGET="--target runtime" ;; esac
+    - docker build $TARGET -f "docker/Dockerfile.$SERVICE" -t "$IMAGE_PREFIX/$SERVICE:$IMAGE_TAG"
+        --label "org.opencontainers.image.revision=$CI_COMMIT_SHA" .
+    - docker push "$IMAGE_PREFIX/$SERVICE:$IMAGE_TAG"
+
+container_scan:
+  stage: container
+  extends: .docker
+  needs: [container_build]
+  parallel:
+    matrix:
+      - SERVICE: [mortgage-service, servicing-service, analytics-service, knowledge-assistant]
   variables:
-    HOME: "$CI_PROJECT_DIR"   # trivy looks for the local Maven repository in $HOME/.m2/repository
+    TRIVY_USERNAME: "$CI_REGISTRY_USER"
+    TRIVY_PASSWORD: "$CI_REGISTRY_PASSWORD"
   script:
-    - sh scripts/security-gates.sh sca-java
-    - sh scripts/security-gates.sh sca-npm
+    - bash scripts/ci/container-scan.sh "$IMAGE_PREFIX/$SERVICE:$IMAGE_TAG" "$SERVICE"
+  artifacts: { when: always, paths: ["reports/security/trivy-image-*"], expire_in: 30 days }
+
+# ------------------------------------------------------------------ Integration tests (scanned images, full stack)
+integration_tests:
+  stage: integration
+  extends: .docker
+  script:
+    - apk add --no-cache docker-cli-compose py3-pip
+    - IMAGE_PREFIX="$IMAGE_PREFIX" bash scripts/ci/integration-tests.sh
+  after_script:
+    - docker compose logs --no-color > reports/compose-logs.txt 2>&1 || true
+    - docker compose down -v || true
   artifacts:
     when: always
-    paths: ["reports/security/trivy-*.txt"]
+    reports: { junit: reports/junit/*.xml }
+    paths: [reports/compose-logs.txt]
     expire_in: 30 days
 
-dependency_scanning_python:
-  stage: security
-  image: python:3.14.7-slim
+# ------------------------------------------------------------------ Publish (promote tested images, no rebuild)
+publish:
+  stage: publish
+  extends: .docker
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == "main"
+      variables: { EXTRA_TAG: "$CI_COMMIT_BRANCH" }
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
   script:
-    - sh scripts/security-gates.sh sca-python
-  artifacts:
-    when: always
-    paths: [reports/security/pip-audit.txt]
-    expire_in: 30 days
+    - EXTRA_TAG="${EXTRA_TAG:-${CI_COMMIT_TAG#v}}"
+    - for s in mortgage-service servicing-service analytics-service knowledge-assistant; do
+        docker buildx imagetools create --tag "$IMAGE_PREFIX/$s:$EXTRA_TAG" "$IMAGE_PREFIX/$s:$IMAGE_TAG";
+      done
 
-docker-build:
-  stage: build
-  script:
-    - echo "Milestone 5+ build and push images; scan in M9"
-  when: manual
+# Deploy jobs (dev automatic, test manual, prod plan-only) are added with Terraform in Task 9.1 part B.

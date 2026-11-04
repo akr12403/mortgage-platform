@@ -16,7 +16,7 @@ The Enterprise Mortgage Platform is an event-driven, microservices-based system 
 | **M6** | Security Engineering | 7–8 | `docs/milestones/m06.md` | **Completed** |
 | **M7** | AI / RAG Assistant | 9 | `docs/milestones/m07.md` | **Completed** |
 | **M8** | AWS & Data Platform | 10 | `docs/milestones/m08.md` | **Completed** |
-| **M9** | CI/CD, Terraform, Observability | 11 | `docs/milestones/m09.md` | Planned |
+| **M9** | CI/CD, Terraform, Observability | 11 | `docs/milestones/m09.md` | In progress |
 | **M10** | Testing & Production Readiness | 12 | `docs/milestones/m10.md` | Planned |
 
 ---
@@ -192,7 +192,7 @@ M6 secures the platform end to end:
 | TypeScript secure API consumer (6.4) | [clients/mortgage-api-consumer/](clients/mortgage-api-consumer/README.md) |
 | Secrets rotation runbook (6.5) | [docs/operations/runbook.md](docs/operations/runbook.md#secrets-rotation) |
 | STRIDE threat model, risk register, vulnerability report, remediation backlog (6.6) | [threat-model.md](docs/security/threat-model.md), [risk-register.md](docs/security/risk-register.md), [vulnerability-report.md](docs/security/vulnerability-report.md), [remediation-backlog.md](docs/security/remediation-backlog.md) |
-| Secure CI gates (6.7) | [docs/operations/devsecops-baseline.md](docs/operations/devsecops-baseline.md), `scripts/security-gates.sh`, `.github/workflows/security-gates.yml`, `.gitlab-ci.yml` |
+| Secure CI gates (6.7) | [docs/operations/devsecops-baseline.md](docs/operations/devsecops-baseline.md), `scripts/security-gates.sh`, `.github/workflows/ci.yml`, `.gitlab-ci.yml` |
 | Demo & sign-off (validation + Definition of Done → evidence) | [docs/operations/m6-demo-checklist.md](docs/operations/m6-demo-checklist.md), `bash scripts/m6-demo.sh` |
 
 ### Verification evidence (2026-10-24)
