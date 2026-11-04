@@ -60,11 +60,11 @@ def lake(**overrides):
     return FakeS3(objects)
 
 
-def run(s3):
+def run(s3, drift_mode="fail"):
     out = io.StringIO()
     old, sys.stdout = sys.stdout, out
     try:
-        manifest = etl.run(s3, BUCKET, RAW, CUR, SCHEMA_KEY, DAY, "jr_test")
+        manifest = etl.run(s3, BUCKET, RAW, CUR, SCHEMA_KEY, DAY, "jr_test", drift_mode)
     finally:
         sys.stdout = old
     return manifest, [json.loads(line) for line in out.getvalue().splitlines()]
@@ -152,7 +152,45 @@ class EtlTests(unittest.TestCase):
         finally:
             etl.run = original
             del sys.modules["boto3"]
-        self.assertEqual(captured["args"], ("s3-client", BUCKET, RAW, CUR, SCHEMA_KEY, DAY, "pr_1"))
+        self.assertEqual(captured["args"], ("s3-client", BUCKET, RAW, CUR, SCHEMA_KEY, DAY, "pr_1", "fail"))
+
+
+DRIFTED_MORTGAGE = "\n".join(line + (",property_state" if i == 0 else ",CA") if line else line
+                             for i, line in enumerate(MORTGAGE.split("\n")))
+
+
+class SchemaDriftTests(unittest.TestCase):
+    """Task 8.6: a column added to the export (before/after documented in the pipeline runbook)."""
+
+    def test_added_column_fails_the_run_in_strict_mode_and_writes_nothing(self):
+        s3 = lake(mortgage=DRIFTED_MORTGAGE)
+        s3.objects[f"{CUR}date={DAY}/part-0000.csv"] = "previous good output"
+        with self.assertRaises(etl.SchemaDriftError) as ctx:
+            run(s3)
+        self.assertIn("property_state", str(ctx.exception))
+        self.assertEqual(s3.objects[f"{CUR}date={DAY}/part-0000.csv"], "previous good output")  # untouched
+        self.assertEqual(s3.deleted, [])
+
+    def test_evolve_mode_tolerates_the_added_column_and_records_it(self):
+        s3 = lake(mortgage=DRIFTED_MORTGAGE)
+        manifest, logs = run(s3, drift_mode="evolve")
+        self.assertEqual(manifest["schemaDrift"], {"mortgage": ["property_state"]})
+        self.assertEqual(manifest["schemaDriftMode"], "evolve")
+        self.assertEqual(manifest["rowCount"], 3)
+        self.assertNotIn("property_state", s3.objects[f"{CUR}date={DAY}/part-0000.csv"])  # output contract unchanged
+        self.assertIn("WARN", [l["level"] for l in logs])
+
+    def test_evolve_mode_never_tolerates_a_missing_column(self):
+        with self.assertRaises(etl.SchemaContractError):
+            run(lake(mortgage=MORTGAGE.replace(",status,", ",state,")), drift_mode="evolve")
+
+    def test_no_drift_records_an_empty_drift_map(self):
+        manifest, _ = run(lake())
+        self.assertEqual(manifest["schemaDrift"], {})
+
+    def test_invalid_mode_is_rejected(self):
+        with self.assertRaises(ValueError):
+            run(lake(), drift_mode="ignore")
 
 
 if __name__ == "__main__":

@@ -10,7 +10,12 @@ output row against it before writing. A re-run for the same date replaces that d
 
 Standard library + boto3 only (boto3 comes with the Glue "analytics" library set). Written for Python 3.9.
 Job arguments: --RUN_DATE YYYY-MM-DD, --BUCKET, --RAW_PREFIX, --CURATED_PREFIX, --SCHEMA_KEY, optional
---PIPELINE_RUN_ID (set by scripts/aws/pipeline-run.sh; Glue does not pass its own run id to Python shell jobs).
+--PIPELINE_RUN_ID (set by scripts/aws/pipeline-run.sh; Glue does not pass its own run id to Python shell jobs) and
+--SCHEMA_DRIFT_MODE fail|evolve (Task 8.6, default fail):
+  * a MISSING required input column always fails the run;
+  * an UNEXPECTED (added) input column fails the run in "fail" mode (fail-with-alert: the run state FAILED triggers
+    the EventBridge alert rule) and is tolerated in "evolve" mode: ignored for the output, logged at WARN and
+    recorded in the curated manifest under schemaDrift, so the owner can add it to the schema in a PR.
 IAM: mortgage-glue-etl-role (read raw + glue/ assets, write/delete curated only, write Glue logs).
 """
 import argparse
@@ -28,6 +33,10 @@ TABLES = ("mortgage", "borrower", "delinquency", "payment")
 
 class SchemaContractError(Exception):
     """Input or output does not match the committed schema: the run fails (Glue run state FAILED)."""
+
+
+class SchemaDriftError(SchemaContractError):
+    """The raw export has columns the schema does not know (strict mode)."""
 
 
 def log(level, message, **fields):
@@ -60,6 +69,10 @@ def read_csv(text, table, required_columns):
     if missing:
         raise SchemaContractError(f"{table}.csv is missing required column(s) {missing}; got {columns}")
     return columns, list(reader)
+
+
+def unexpected_columns(columns, required_columns):
+    return [c for c in columns if c not in required_columns]
 
 
 # ---------------------------------------------------------------- transform
@@ -145,21 +158,32 @@ def to_csv(rows, schema):
 
 # ---------------------------------------------------------------- job
 
-def run(s3, bucket, raw_prefix, curated_prefix, schema_key, report_date, pipeline_run_id="local"):
+def run(s3, bucket, raw_prefix, curated_prefix, schema_key, report_date, pipeline_run_id="local", drift_mode="fail"):
     date.fromisoformat(report_date)  # validates YYYY-MM-DD
+    if drift_mode not in ("fail", "evolve"):
+        raise ValueError(f"SCHEMA_DRIFT_MODE must be fail or evolve, not {drift_mode!r}")
     schema = json.loads(s3.get_object(Bucket=bucket, Key=schema_key)["Body"].read())
     raw_dir = f"{raw_prefix}date={report_date}/"
     out_dir = f"{curated_prefix}date={report_date}/"
     log("INFO", "ETL started", reportDate=report_date, raw=f"s3://{bucket}/{raw_dir}", pipelineRunId=pipeline_run_id,
-        schemaVersion=schema["version"])
+        schemaVersion=schema["version"], schemaDriftMode=drift_mode)
 
-    tables, source_counts = {}, {}
+    tables, source_counts, drift = {}, {}, {}
     for table in TABLES:
         key = f"{raw_dir}{table}.csv"
         text = s3.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8")
-        _, rows = read_csv(text, table, schema["sources"][table])
+        columns, rows = read_csv(text, table, schema["sources"][table])
+        extra = unexpected_columns(columns, schema["sources"][table])
+        if extra:
+            drift[table] = extra
         tables[table] = rows
         source_counts[table] = len(rows)
+    if drift:
+        if drift_mode == "fail":
+            raise SchemaDriftError(f"unexpected column(s) in the raw export {drift} (schema v{schema['version']}); "
+                                   "add them to the schema (version bump) or re-run with SCHEMA_DRIFT_MODE=evolve")
+        log("WARN", "Schema drift tolerated (evolve mode): extra columns ignored", schemaDrift=drift,
+            schemaVersion=schema["version"], pipelineRunId=pipeline_run_id)
 
     rows = transform(report_date, tables)
     validate_output(rows, schema)
@@ -178,6 +202,7 @@ def run(s3, bucket, raw_prefix, curated_prefix, schema_key, report_date, pipelin
         "rowCount": len(rows), "outstandingBalanceTotal": str(balance_total),
         "delinquentCount": sum(1 for r in rows if r["is_delinquent"] == "true"),
         "sourceRowCounts": source_counts, "files": [data_key], "pipelineRunId": pipeline_run_id,
+        "schemaDriftMode": drift_mode, "schemaDrift": drift,
         "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
     s3.put_object(Bucket=bucket, Key=f"{out_dir}_manifest.json", Body=json.dumps(manifest, indent=2).encode("utf-8"),
@@ -192,11 +217,12 @@ def main(argv=None):
     for name in ("RUN_DATE", "BUCKET", "RAW_PREFIX", "CURATED_PREFIX", "SCHEMA_KEY"):
         parser.add_argument(f"--{name}", required=True)
     parser.add_argument("--PIPELINE_RUN_ID", default="unknown")
+    parser.add_argument("--SCHEMA_DRIFT_MODE", default="fail")
     args, _ = parser.parse_known_args(argv)  # Glue adds its own arguments (--job-bookmark-option, ...)
     import boto3
     try:
         run(boto3.client("s3"), args.BUCKET, args.RAW_PREFIX, args.CURATED_PREFIX, args.SCHEMA_KEY, args.RUN_DATE,
-            args.PIPELINE_RUN_ID)
+            args.PIPELINE_RUN_ID, args.SCHEMA_DRIFT_MODE)
     except Exception as exc:
         log("ERROR", "ETL failed", errorType=type(exc).__name__, error=str(exc)[:500], reportDate=args.RUN_DATE,
             pipelineRunId=args.PIPELINE_RUN_ID)

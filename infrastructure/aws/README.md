@@ -52,6 +52,8 @@ bash scripts/aws/lookup-deploy.sh             # DynamoDB mortgage lookup table (
 bash scripts/aws/lookup-load.sh               # bulk-load it from local PostgreSQL as mortgage-analytics-role
 bash scripts/aws/pipeline-deploy.sh           # Glue job + its script and schema in s3://…/glue/ (Task 8.5)
 bash scripts/aws/pipeline-run.sh              # PostgreSQL -> raw -> Glue -> curated for today (RUN_DATE=… to override)
+bash scripts/aws/reconcile.sh                 # PostgreSQL vs curated: rows 0 diff, balance ±0.01 -> PASS/FAIL (Task 8.6)
+DRIFT_COLUMN=property_state bash scripts/aws/pipeline-run.sh   # schema drift demo: run fails + EventBridge alert
 bash scripts/aws/teardown.sh                  # remove the Lambda pieces, empty + delete the buckets, delete the roles (asks first; --yes to skip)
 ```
 

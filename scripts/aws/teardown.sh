@@ -3,7 +3,7 @@
 #   bash scripts/aws/teardown.sh          # lists what will be deleted and asks for confirmation
 #   bash scripts/aws/teardown.sh --yes    # no prompt
 # Grows with each task: 8.1 IAM roles, 8.2 S3 buckets (emptied first), 8.3 Lambda + its log group, alarm, metadata
-# table and S3 trigger, 8.4 DynamoDB lookup table, 8.5 Glue job and its log groups.
+# table and S3 trigger, 8.4 DynamoDB lookup table, 8.5 Glue job and its log groups, 8.6 pipeline alert rule + log group.
 # Only names from infrastructure/aws/ are touched; anything else in the account is left alone.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -59,6 +59,12 @@ fi
 
 if [ "$HAS_GLUE" = 1 ]; then
   log "Data pipeline (Task 8.5)"
+  if aws_sb events describe-rule --name "$GLUE_JOB-failed" >/dev/null 2>&1; then
+    aws_sb events remove-targets --rule "$GLUE_JOB-failed" --ids pipeline-alert-log >/dev/null
+    aws_sb events delete-rule --name "$GLUE_JOB-failed"; ok "deleted EventBridge rule $GLUE_JOB-failed"
+  fi
+  aws_sb logs delete-resource-policy --policy-name capstone-mortgage-pipeline-alerts 2>/dev/null || true
+  aws_sb logs delete-log-group --log-group-name "$PIPELINE_ALERT_LOG_GROUP" 2>/dev/null && ok "deleted log group $PIPELINE_ALERT_LOG_GROUP" || true
   aws_sb glue delete-job --job-name "$GLUE_JOB" >/dev/null; ok "deleted Glue job $GLUE_JOB"
   for group in /aws-glue/python-jobs/output /aws-glue/python-jobs/error; do
     aws_sb logs delete-log-group --log-group-name "$group" 2>/dev/null && ok "deleted log group $group" || true
