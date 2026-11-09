@@ -1,6 +1,6 @@
 # infrastructure/aws (M8)
 
-AWS sandbox definitions for Milestone 8. Resources are created by the scripts in `scripts/aws/`, which are idempotent and run from the repo root. Terraform replaces these scripts in M9.
+AWS sandbox definitions for Milestone 8. Resources are created by the scripts in `scripts/aws/`, which are idempotent and run from the repo root. Since M9 Task 9.2, Terraform ([`infrastructure/terraform/`](../terraform/)) owns these resources in dev: it imported them and renders the same templates below. Don't run the `*-apply.sh` / `*-deploy.sh` scripts against dev any more; the verify, run and reconcile scripts still apply ([docs/operations/terraform.md](../../docs/operations/terraform.md#m8-scripts-after-the-import)).
 
 | Path | What it holds |
 | --- | --- |

@@ -1,0 +1,9 @@
+output "vpc_id" {
+  description = "VPC id."
+  value       = aws_vpc.this.id
+}
+
+output "public_subnet_ids" {
+  description = "Public subnet ids, one per AZ."
+  value       = aws_subnet.public[*].id
+}
