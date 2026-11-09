@@ -40,7 +40,7 @@ case "$suite" in
     python3 -m pip install -q --disable-pip-version-check pytest jsonschema
     python3 -m pytest -q -p no:cacheprovider tests/contract --junitxml="$OUT/pytest-contract.xml" -o junit_suite_name=contract
     python3 -m pytest -q -p no:cacheprovider \
-      tests/security/test_static_sql.py tests/security/test_iam_policies.py \
+      tests/security/test_static_sql.py tests/security/test_iam_policies.py tests/infrastructure \
       infrastructure/aws/lambda/doc_processor/tests infrastructure/glue/tests \
       --junitxml="$OUT/pytest-repo-guards.xml" -o junit_suite_name=repo-guards
     ;;
