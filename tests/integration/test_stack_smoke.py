@@ -54,6 +54,19 @@ def login(user):
     return body["accessToken"]
 
 
+def settled(read, quiet=6, timeout=60, interval=2):
+    """Read a counter until it stops changing for `quiet` seconds. Earlier tests in the same run (the M6 RBAC smoke
+    posts payments to the same mortgage) leave events in flight; a baseline taken mid-flight would count their
+    late arrival as a duplicate of ours."""
+    value, stable_since, deadline = read(), time.time(), time.time() + timeout
+    while time.time() < deadline and time.time() - stable_since < quiet:
+        time.sleep(interval)
+        current = read()
+        if current != value:
+            value, stable_since = current, time.time()
+    return value
+
+
 def wait_for(predicate, timeout=60, interval=2):
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -90,8 +103,8 @@ class StackSmokeTest(unittest.TestCase):
         return (body.get("eventsProcessed") or {}).get("PaymentReceived", 0)
 
     def test_2_payment_event_reaches_both_consumers_once(self):
-        before_history = self._history_types().count("PAYMENT_POSTED")
-        before_analytics = self._analytics_payments()
+        before_history = settled(lambda: self._history_types().count("PAYMENT_POSTED"))
+        before_analytics = settled(self._analytics_payments)
         key = f"ci-smoke-{uuid.uuid4()}"
         payment = {"dueDate": str(date.today() - timedelta(days=2)), "paidDate": str(date.today()),
                    "amount": 1.00, "status": "POSTED"}

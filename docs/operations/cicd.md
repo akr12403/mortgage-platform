@@ -57,7 +57,7 @@ Why only *fixable* CRITICAL blocks: a CVE with no fix can't be acted on by this 
 - **Integration secrets are generated per run.** The JWT secret, database password and seed password are random values written to a `.env` that exists only on the runner. They're never printed, and the runner is destroyed after the job.
 - **Credentials don't go on command lines.** Registry credentials reach Trivy through the environment (`TRIVY_USERNAME`/`TRIVY_PASSWORD`). GitHub masks secret values in logs.
 - **AWS access uses OIDC, not keys** (backlog B-20). Each job that touches AWS gets a 1-hour session for one of two roles ([below](#aws-access-from-ci)). The repository stores only role ARNs.
-- **Later secrets are masked repository secrets, never files.** Task 9.3: Splunk uses `SPLUNK_HEC_URL` and `SPLUNK_HEC_TOKEN`.
+- **Later secrets are masked repository secrets, never files.** Task 9.3: log shipping to Splunk takes `SPLUNK_HEC_HOST`, `SPLUNK_HEC_PORT` and `SPLUNK_HEC_TOKEN` from the environment ([observability.md](observability.md#splunk)).
 
 ## Triggers and cost
 

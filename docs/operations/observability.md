@@ -58,4 +58,29 @@ docker compose logs --no-log-prefix | grep '^{' | jq -c 'select(.correlationId==
 
 The handbook's example `service=mortgage-service level=ERROR` maps to `service.name=… log.level=…`.
 
-The Splunk ingestion, the dashboard, the alerts and the SLOs follow in the next steps of Task 9.3.
+## Splunk
+
+```text
+service stdout (JSON) -> Docker fluentd log driver -> log-shipper (Fluent Bit) -> Splunk HEC (TLS) -> index mortgage_dev
+```
+
+- **Shipping is an overlay:** [`docker-compose.splunk.yml`](../../docker-compose.splunk.yml).
+  - **Host, port, token and index come from the environment**, never from a file in Git.
+  - **Fluent Bit** parses each line into fields and adds the container name, sending them with sourcetype `mortgage:app:json`.
+  - **`docker compose logs` still works:** Docker keeps a local copy (dual logging). Services never wait for the shipper (`fluentd-async`).
+- **Local Splunk** for building and testing: `bash scripts/splunk/local-up.sh`. In one command it:
+  - generates its own credentials;
+  - creates the index, the HEC token, the dashboard and the alerts;
+  - starts the stack;
+  - proves a request is searchable by its correlation ID.
+- **Splunk objects as code:** [`monitoring/splunk/`](../../monitoring/splunk/) holds the dashboard and alerts, with instructions for importing them into another Splunk.
+- **SLIs, SLOs and the alert thresholds:** [slo.md](slo.md). **What to do when an alert fires:** [runbook.md#alerts](runbook.md#alerts).
+
+### Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Nothing arrives in `mortgage_dev` | `docker compose logs log-shipper`. A `401`/`403` is a wrong token, or a token not allowed to write to `mortgage_dev`. `connection refused` is the wrong host or port, or Splunk isn't up yet. |
+| Events arrive but have no fields | The sourcetype must be `mortgage:app:json`, not `_json`. Search-time JSON extraction applies to the custom sourcetype. |
+| A service's lines are missing | It was started without the overlay. Run `docker compose -f docker-compose.yml -f docker-compose.splunk.yml up -d <service>` again. |
+| Local Splunk is slow or doesn't start | It's amd64-only. On Apple silicon, enable Rosetta in Docker Desktop and give Docker at least 6 GB of memory. The first start takes several minutes. |
