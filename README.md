@@ -310,7 +310,7 @@ bash scripts/aws/teardown.sh           # remove everything M8 created
 
 ---
 
-## 🚧 Milestone 9 Status: IN PROGRESS — CI/CD, TERRAFORM & OBSERVABILITY
+## 🚀 Milestone 9 Status: COMPLETED — CI/CD, TERRAFORM & OBSERVABILITY
 
 | Task | Status | Where |
 | --- | --- | --- |
@@ -319,6 +319,9 @@ bash scripts/aws/teardown.sh           # remove everything M8 created
 | 9.2 Terraform: 5 modules, dev/test/prod, S3 remote state with locking, M8 resources imported, drift exercise | dev applied (M8 resources imported: 48 imported, 44 added, 0 destroyed; follow-up plan clean); drift exercise passed; test/prod plan-only | [`infrastructure/terraform/`](infrastructure/terraform/), [Terraform guide](docs/operations/terraform.md), [drift exercise](docs/operations/terraform-drift-exercise.md) |
 | 9.3 Observability: JSON logs with correlationId (4 services), Splunk HEC shipping (index `mortgage_dev`), dashboard, 3 alerts, SLOs | Done (PRs #112, #113), verified on a local Splunk; moving to the instructor's Splunk is configuration only | [observability](docs/operations/observability.md), [slo](docs/operations/slo.md), [`monitoring/splunk/`](monitoring/splunk/) |
 | 9.4 Incident simulation and RCA | Done: PostgreSQL outage drill, all 3 alerts fired, RCA with Splunk timestamps; follow-ups B-22…B-25 | [RCA 2026-11-10](docs/operations/rca-2026-11-10.md), [incident response](docs/operations/incident-response.md) |
+| Demo & sign-off (validation + Definition of Done → evidence, cleanup) | [docs/operations/m9-demo-checklist.md](docs/operations/m9-demo-checklist.md), `bash scripts/m9-demo.sh` |
+
+Deviations (all recorded in the checklist): GitHub Actions instead of GitLab, deploys run with the developer session because the sandbox SCP blocks GitHub OIDC (B-20), S3-native state locking, test/prod plan-only, local Splunk until the course's HEC token is issued. Follow-ups from the RCA: B-22…B-25.
 
 ## 🛠️ Local Development & Reset Workflow
 To reset and seed your local PostgreSQL environment:

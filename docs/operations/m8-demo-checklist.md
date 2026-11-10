@@ -106,8 +106,8 @@ The risk register adds **R-21 to R-24**, and **R-08** drops from 10 Medium to 5 
 
 ## After sign-off
 
-`bash scripts/aws/teardown.sh` removes everything M8 created. Re-create any time with the commands above. The sandbox's Free plan ends automatically; nothing runs or bills while it's idle.
+Since M9 the M8 resources are managed by Terraform (imported into dev), so `scripts/aws/teardown.sh` is no longer used: it would delete resources behind Terraform's back. Cleanup after the final demo is `tf.sh dev destroy` and then the state bucket ([M9 checklist](m9-demo-checklist.md#after-the-final-demo-cleanup)).
 
 ## Sign-off
 
-- [ ] **Reviewed by a peer or the instructor** at the M8 review session: demo run, IAM matrix, ADR-003 and pipeline runbook read, T-33 to T-40 and R-21 to R-24 agreed. Reviewer and date: ____________________
+- [ ] **Reviewed by a peer or the instructor** at the M8 review session: demo run, IAM matrix, ADR-003 and pipeline runbook read, T-33 to T-40 and R-21 to R-24 agreed. Reviewer: **Sumanth Donur**. Review due: **2026-11-10**. Tick this box when the review is done.

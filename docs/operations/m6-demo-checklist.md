@@ -27,7 +27,7 @@ Have these open in a browser tab: [threat-model.md](../security/threat-model.md)
 - [x] **Login returns JWT; protected endpoint works with Bearer token.** `test_auth_smoke.py` 7/7 and `JwtAuthenticationTest`; demo step 1
 - [x] **SUPPORT cannot call underwriter-only endpoint (403).** `RbacMatrixTest::supportCannotApproveLoan_M10Journey4`, `test_rbac_smoke.py::test_support_cannot_approve_loan_m10_journey4`; demo step 2
 - [x] **TS consumer completes login + GET flow.** `npm test` 16/16 and `npm run demo` against the live stack (2026-10-24); demo step 3
-- [ ] **Threat model and risk register reviewed by peer.** Solo project: review by the instructor (or a classmate) at the M6 review session; tick the sign-off boxes in [threat-model.md](../security/threat-model.md#sign-off) and [risk-register.md](../security/risk-register.md#review)
+- [ ] **Threat model and risk register reviewed by peer.** Reviewer: **Sumanth Donur**, review due **2026-11-10**. Tick this box and the sign-off boxes in [threat-model.md](../security/threat-model.md#sign-off) and [risk-register.md](../security/risk-register.md#review)
 - [x] **No Critical open vulnerabilities in report.** [vulnerability-report.md](../security/vulnerability-report.md#summary): 0 Critical/High open
 - [x] **Pipeline fails on intentional test secret (then remove).** PR #91: `secret-detection` failed in 8 s, closed unmerged, branch deleted ([evidence](./devsecops-baseline.md#validation-the-pipeline-fails-on-an-intentional-test-secret))
 

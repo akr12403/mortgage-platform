@@ -21,6 +21,12 @@ variable "region" {
   default     = "us-east-2"
 }
 
+variable "force_destroy_state" {
+  description = "Final cleanup only: let terraform destroy delete the state bucket with all its object versions."
+  type        = bool
+  default     = false
+}
+
 provider "aws" {
   region = var.region
   default_tags {
@@ -36,7 +42,8 @@ provider "aws" {
 data "aws_caller_identity" "current" {}
 
 resource "aws_s3_bucket" "state" {
-  bucket = "capstone-mortgage-tfstate-${data.aws_caller_identity.current.account_id}"
+  bucket        = "capstone-mortgage-tfstate-${data.aws_caller_identity.current.account_id}"
+  force_destroy = var.force_destroy_state # false: the state of every environment is never deleted by accident
 }
 
 # Versioning: every state write is kept, so a bad apply or a corrupted state can be rolled back.
