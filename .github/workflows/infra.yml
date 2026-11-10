@@ -1,0 +1,207 @@
+# M9 Tasks 9.1 (part B) and 9.2: Terraform in CI. Guide: docs/operations/terraform.md#ci and docs/operations/cicd.md
+#
+#   pull request (Terraform/IaC paths)  fmt + validate (no AWS), then plan dev, test and prod (read-only role)
+#   nightly                             drift check: plan dev; exit 2 (changes) fails the run
+#   manual (Run workflow)               test: gated plan · prod: dry run (plan only, never applied in the sandbox)
+#                                       dev + apply: redeploy / ROLLBACK to an earlier image tag (develop only)
+# The automatic dev deployment after every merge to develop is the deploy-dev job in ci.yml.
+# AWS: GitHub OIDC -> capstone-mortgage-ci-plan (read-only) or capstone-mortgage-ci-deploy-dev (develop only).
+# The AWS jobs run only when the repository variable AWS_OIDC_ENABLED = true. In the sandbox the SCP denies the OIDC
+# provider, so only fmt + validate run in CI and plans/rollbacks run locally (docs/operations/cicd.md#deploy-part-b).
+name: infra
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - "infrastructure/terraform/**"
+      - "infrastructure/aws/**"
+      - "infrastructure/glue/**"
+      - "scripts/terraform/**"
+      - ".github/workflows/infra.yml"
+  schedule:
+    - cron: "17 7 * * *" # 07:17 UTC daily
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "test = gated plan, prod = dry run (plan only), dev = plan, or apply for a redeploy/rollback"
+        type: choice
+        options: [test, prod, dev]
+        default: test
+      action:
+        description: "apply is allowed for dev only (run from the develop branch)"
+        type: choice
+        options: [plan, apply]
+        default: plan
+      image_tag:
+        description: "dev apply: image tag to deploy, e.g. sha-<40-char commit> (empty = keep the running one)"
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: infra-${{ github.ref }}-${{ github.event_name }}-${{ inputs.environment || 'all' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  TF_VERSION: "1.17.1"
+  TF_IN_AUTOMATION: "1"
+  TF_VAR_developer_principal_arn: ${{ secrets.TF_DEVELOPER_PRINCIPAL_ARN }}
+
+jobs:
+  # ------------------------------------------------------------------ static checks (no AWS)
+  fmt-validate:
+    name: terraform fmt + validate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: hashicorp/setup-terraform@v4
+        with: { terraform_version: "${{ env.TF_VERSION }}", terraform_wrapper: false }
+      - run: terraform fmt -check -recursive -diff infrastructure/terraform
+      - name: validate every environment and the bootstrap
+        run: |
+          for d in infrastructure/terraform/bootstrap infrastructure/terraform/environments/{dev,test,prod}; do
+            terraform -chdir="$d" init -backend=false -input=false -no-color >/dev/null
+            terraform -chdir="$d" validate -no-color
+          done
+
+  # ------------------------------------------------------------------ PR plans: what this change would do everywhere
+  plan:
+    name: plan (${{ matrix.environment }})
+    if: github.event_name == 'pull_request' && vars.AWS_OIDC_ENABLED == 'true'
+    needs: fmt-validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, test, prod]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_PLAN_ROLE_ARN }}
+          role-session-name: plan-${{ matrix.environment }}-${{ github.run_id }}
+          aws-region: us-east-2
+      - uses: hashicorp/setup-terraform@v4
+        with: { terraform_version: "${{ env.TF_VERSION }}", terraform_wrapper: false }
+      - name: terraform plan (${{ matrix.environment }})
+        env:
+          ENV_NAME: ${{ matrix.environment }}
+        run: |
+          export TF_VAR_image_tag="$(bash scripts/ci/current-image-tag.sh "$ENV_NAME")"
+          bash scripts/terraform/tf.sh "$ENV_NAME" init -no-color >/dev/null
+          set +e
+          bash scripts/terraform/tf.sh "$ENV_NAME" plan -input=false -no-color -lock-timeout=120s -detailed-exitcode > "$RUNNER_TEMP/plan.txt" 2>&1
+          rc=$?
+          set -e
+          bash scripts/ci/plan-summary.sh "plan $ENV_NAME" "$RUNNER_TEMP/plan.txt" "$rc" >> "$GITHUB_STEP_SUMMARY"
+          [ "$rc" != 1 ] || { tail -40 "$RUNNER_TEMP/plan.txt" | sed -E 's/[0-9]{12}/<account>/g'; exit 1; }
+          grep -E '^Plan:|^No changes' "$RUNNER_TEMP/plan.txt" || true
+
+  # ------------------------------------------------------------------ nightly drift check (dev)
+  drift:
+    name: drift check (dev)
+    if: github.event_name == 'schedule' && vars.AWS_OIDC_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_PLAN_ROLE_ARN }}
+          role-session-name: drift-dev-${{ github.run_id }}
+          aws-region: us-east-2
+      - uses: hashicorp/setup-terraform@v4
+        with: { terraform_version: "${{ env.TF_VERSION }}", terraform_wrapper: false }
+      - name: terraform plan -detailed-exitcode (dev)
+        run: |
+          export TF_VAR_image_tag="$(bash scripts/ci/current-image-tag.sh dev)"
+          bash scripts/terraform/tf.sh dev init -no-color >/dev/null
+          set +e
+          bash scripts/terraform/tf.sh dev plan -input=false -no-color -lock-timeout=120s -detailed-exitcode > "$RUNNER_TEMP/plan.txt" 2>&1
+          rc=$?
+          set -e
+          bash scripts/ci/plan-summary.sh "drift check dev" "$RUNNER_TEMP/plan.txt" "$rc" >> "$GITHUB_STEP_SUMMARY"
+          case "$rc" in
+            0) echo "dev matches the code" ;;
+            2) echo "::error title=Drift detected in dev::AWS differs from the code. See the run summary and docs/operations/terraform-drift-exercise.md#remediation-choices"; exit 1 ;;
+            *) tail -40 "$RUNNER_TEMP/plan.txt" | sed -E 's/[0-9]{12}/<account>/g'; exit 1 ;;
+          esac
+
+  # ------------------------------------------------------------------ manual: gated test plan, prod dry run, dev redeploy/rollback
+  manual:
+    name: ${{ inputs.environment }} ${{ inputs.action }}${{ inputs.environment == 'prod' && ' (dry run)' || '' }}
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: ${{ inputs.environment == 'dev' && inputs.action == 'apply' && 'deploy-dev' || format('manual-{0}', inputs.environment) }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+      id-token: write
+    env:
+      ENV_NAME: ${{ inputs.environment }}
+      ACTION: ${{ inputs.action }}
+      REQUESTED_TAG: ${{ inputs.image_tag }}
+      IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+    steps:
+      - name: Guard (test and prod are plan-only in the sandbox; apply runs from develop)
+        env:
+          OIDC: ${{ vars.AWS_OIDC_ENABLED }}
+        run: |
+          if [ "$OIDC" != true ]; then
+            echo "::error::CI has no AWS access (AWS_OIDC_ENABLED is not true; the sandbox SCP denies the GitHub OIDC provider). Run locally: bash scripts/terraform/tf.sh $ENV_NAME plan, or bash scripts/deploy/deploy-dev.sh <tag> for a dev apply/rollback"; exit 1
+          fi
+          if [ "$ACTION" = apply ] && [ "$ENV_NAME" != dev ]; then
+            echo "::error::$ENV_NAME is plan-only in the sandbox (docs/operations/terraform.md#deviations-from-the-handbook)"; exit 1
+          fi
+          if [ "$ACTION" = apply ] && [ "$GITHUB_REF" != refs/heads/develop ]; then
+            echo "::error::dev apply must be run from the develop branch (the deploy role trusts develop only)"; exit 1
+          fi
+          case "$REQUESTED_TAG" in ""|sha-*|[0-9]*.[0-9]*.[0-9]*) ;; *) echo "::error::image_tag must be sha-<commit> or a semver"; exit 1 ;; esac
+      - uses: actions/checkout@v6
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ inputs.environment == 'dev' && inputs.action == 'apply' && secrets.AWS_DEPLOY_DEV_ROLE_ARN || secrets.AWS_PLAN_ROLE_ARN }}
+          role-session-name: manual-${{ inputs.environment }}-${{ inputs.action }}-${{ github.run_id }}
+          aws-region: us-east-2
+      - uses: docker/login-action@v4
+        if: inputs.action == 'apply' && inputs.image_tag != ''
+        with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
+      - uses: hashicorp/setup-terraform@v4
+        with: { terraform_version: "${{ env.TF_VERSION }}", terraform_wrapper: false }
+      - name: terraform ${{ inputs.action }} (${{ inputs.environment }})
+        run: |
+          tag="${REQUESTED_TAG:-$(bash scripts/ci/current-image-tag.sh "$ENV_NAME")}"
+          export TF_VAR_image_tag="$tag"
+          echo "image tag: $tag"
+          bash scripts/terraform/tf.sh "$ENV_NAME" init -no-color >/dev/null
+          set +e
+          if [ "$ACTION" = apply ]; then
+            [ -z "$REQUESTED_TAG" ] || bash scripts/ci/promote-to-ecr.sh "$ENV_NAME" "$tag"
+            bash scripts/terraform/tf.sh "$ENV_NAME" apply -input=false -auto-approve -no-color -lock-timeout=120s > "$RUNNER_TEMP/out.txt" 2>&1
+            rc=$?
+            bash scripts/ci/deploy-summary.sh "$ENV_NAME" "$tag" "$RUNNER_TEMP/out.txt" >> "$GITHUB_STEP_SUMMARY"
+          else
+            bash scripts/terraform/tf.sh "$ENV_NAME" plan -input=false -no-color -lock-timeout=120s -detailed-exitcode > "$RUNNER_TEMP/out.txt" 2>&1
+            rc=$?
+            title="plan $ENV_NAME"; [ "$ENV_NAME" = prod ] && title="prod dry run (plan only)"
+            bash scripts/ci/plan-summary.sh "$title" "$RUNNER_TEMP/out.txt" "$rc" >> "$GITHUB_STEP_SUMMARY"
+            [ "$rc" = 2 ] && rc=0
+          fi
+          set -e
+          [ "$rc" = 0 ] || { tail -40 "$RUNNER_TEMP/out.txt" | sed -E 's/[0-9]{12}/<account>/g'; exit 1; }
+          grep -E '^Plan:|^No changes|^Apply complete' "$RUNNER_TEMP/out.txt" || true

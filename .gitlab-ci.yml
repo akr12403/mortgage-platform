@@ -3,6 +3,8 @@
 # Guide: docs/operations/cicd.md. Merge blocking: Settings > Merge requests > "Pipelines must succeed".
 #
 #   build -> test -> security (sast, sca, secrets) -> container (build, scan) -> integration -> publish -> deploy
+# Deploy: dev automatic on develop; test plan manual; prod dry run manual; nightly drift check (scheduled pipeline).
+# AWS via GitLab OIDC (id_tokens) -> the same roles as GitHub would need a GitLab trust statement (not provisioned).
 
 stages:
   - build
@@ -11,6 +13,7 @@ stages:
   - container
   - integration
   - publish
+  - deploy
 
 variables:
   MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
@@ -160,4 +163,61 @@ publish:
         docker buildx imagetools create --tag "$IMAGE_PREFIX/$s:$EXTRA_TAG" "$IMAGE_PREFIX/$s:$IMAGE_TAG";
       done
 
-# Deploy jobs (dev automatic, test manual, prod plan-only) are added with Terraform in Task 9.1 part B.
+# ------------------------------------------------------------------ Deploy (Task 9.1 part B; same scripts as .github/workflows)
+.aws:
+  image: hashicorp/terraform:1.17.1
+  id_tokens:
+    AWS_ID_TOKEN: { aud: sts.amazonaws.com }
+  variables:
+    AWS_REGION: us-east-2
+    TF_IN_AUTOMATION: "1"
+    TF_VAR_developer_principal_arn: $TF_DEVELOPER_PRINCIPAL_ARN   # masked CI/CD variable
+  before_script:
+    - apk add --no-cache bash aws-cli docker-cli
+    - >
+      export $(printf "AWS_ACCESS_KEY_ID=%s AWS_SECRET_ACCESS_KEY=%s AWS_SESSION_TOKEN=%s"
+      $(aws sts assume-role-with-web-identity --role-arn "$AWS_ROLE_ARN" --role-session-name "gitlab-$CI_JOB_ID"
+      --web-identity-token "$AWS_ID_TOKEN" --duration-seconds 3600
+      --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text))
+
+deploy_dev:
+  stage: deploy
+  extends: .aws
+  services: ["docker:28-dind"]
+  variables: { AWS_ROLE_ARN: $AWS_DEPLOY_DEV_ROLE_ARN, TF_VAR_image_tag: "sha-$CI_COMMIT_SHA" }
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop" && $CI_PIPELINE_SOURCE != "schedule"
+  resource_group: deploy-dev
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - bash scripts/ci/promote-to-ecr.sh dev "sha-$CI_COMMIT_SHA"
+    - bash scripts/terraform/tf.sh dev init
+    - bash scripts/terraform/tf.sh dev apply -input=false -auto-approve -lock-timeout=120s
+
+.plan:
+  stage: deploy
+  extends: .aws
+  variables: { AWS_ROLE_ARN: $AWS_PLAN_ROLE_ARN }
+  script:
+    - export TF_VAR_image_tag="$(bash scripts/ci/current-image-tag.sh "$ENV_NAME")"
+    - bash scripts/terraform/tf.sh "$ENV_NAME" init
+    - bash scripts/terraform/tf.sh "$ENV_NAME" plan -input=false -lock-timeout=120s
+
+plan_test:
+  extends: .plan
+  variables: { ENV_NAME: test }
+  rules: [{ if: $CI_COMMIT_BRANCH == "develop", when: manual, allow_failure: true }]
+
+prod_dry_run:
+  extends: .plan
+  variables: { ENV_NAME: prod }
+  rules: [{ if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop", when: manual, allow_failure: true }]
+
+drift_dev:
+  extends: .plan
+  variables: { ENV_NAME: dev }
+  rules: [{ if: $CI_PIPELINE_SOURCE == "schedule" }]
+  script:
+    - export TF_VAR_image_tag="$(bash scripts/ci/current-image-tag.sh dev)"
+    - bash scripts/terraform/tf.sh dev init
+    - bash scripts/terraform/tf.sh dev plan -input=false -lock-timeout=120s -detailed-exitcode

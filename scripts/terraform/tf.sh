@@ -5,7 +5,7 @@
 #   bash scripts/terraform/tf.sh dev plan [-out=dev.tfplan] [...]   # any terraform subcommand and flags
 #   bash scripts/terraform/tf.sh prod plan                          # test/prod: plan only in the sandbox
 # Locally: credentials come from the `aws login --profile capstone-dev` session and live only in this process's
-# environment (never written, never printed). In GitHub Actions (part B): from the OIDC role in the job environment.
+# environment (never written, never printed). In CI (CI=true): from the OIDC role already in the job environment.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TF_DIR="$ROOT/infrastructure/terraform"
@@ -28,7 +28,7 @@ command -v aws >/dev/null || die "AWS CLI v2 not found (brew install awscli)"
 unset AWS_ENDPOINT_URL AWS_ENDPOINT_URL_S3 AWS_ENDPOINT_URL_SNS AWS_ENDPOINT_URL_SQS AWS_ENDPOINT_URL_DYNAMODB
 export AWS_REGION="$REGION" AWS_DEFAULT_REGION="$REGION"
 
-if [ -z "${GITHUB_ACTIONS:-}" ]; then
+if [ -z "${CI:-}" ]; then   # laptop; CI (GitHub Actions, GitLab) brings OIDC credentials in the environment
   unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE
   # Works for every credential type the CLI supports (including `aws login`), so Terraform needs no profile support.
   creds="$(aws configure export-credentials --profile "$PROFILE" --format env 2>/dev/null)" \
