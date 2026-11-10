@@ -15,7 +15,7 @@ PAUSE=1 bash scripts/m9-demo.sh
 
 Have these open in the browser:
 - the last green `ci` run on `develop` (Actions → ci);
-- the Splunk dashboard http://localhost:8002/en-US/app/search/mortgage_platform_overview, with the time range covering the drill: 2026-11-10 04:44–05:00 UTC, which is 11:44 PM–12:00 AM Eastern;
+- the Splunk dashboard http://localhost:8002/en-US/app/search/mortgage_platform_overview, with the time range covering the re-run of the drill: 2026-11-10 08:44–09:00 UTC, which is 3:44–4:00 AM Eastern (drill 1: 04:44–05:00 UTC);
 - Splunk *Activity → Triggered Alerts*;
 - [rca-2026-11-10.md](rca-2026-11-10.md).
 
@@ -26,8 +26,8 @@ Have these open in the browser:
 | 1 | **Push → pipeline green through deploy dev** (4 min) | One pipeline, `ci.yml`: build → unit tests (6 suites) → secret scan, SAST and SCA → container build → container scan (fixable CRITICAL fails) → integration tests on the scanned images → publish. Deployment: the sandbox's organization policy blocks GitHub OIDC, so `deploy-dev (run locally)` hands off the exact command, and `deploy-dev.sh` deploys only images with a green `ci` run. The CI deploy job is implemented and switched off by one flag. | A green run on `develop`, then `deploy-dev.sh` output ending in an ECS task definition revision |
 | 2 | **Terraform plan / apply artifact** (2 min) | 5 modules and 3 environments, identical except `tfvars`. S3 state with native locking. The M8 resources were imported, not recreated (48 imported). Drift is detected (exit 2) and remediated by apply. test and prod are plan-only. | `tf.sh dev plan -detailed-exitcode` → exit 0. [Drift record](terraform-drift-exercise.md#record-of-the-run). [Deployment record](cicd.md#deployment-record) |
 | 3 | **Splunk search by correlationId from a live API call** (2 min) | Every log line in all 4 services is JSON with the same fields. The correlation ID comes from the caller or is generated, returned in the response, and carried through events into the consumers. | The script's request ID is found in `index=mortgage_dev`, with the `http_request` line (route template, status, `durationMs`) |
-| 4 | **Dashboard + the alert that fired during the sim** (2 min) | Payment SLI, p95, request rate, 5xx rate, errors, consumer failures. 3 alerts as code, each with a runbook section. In the drill: *Error spike* after 1 min 4 s, both payment SLO alerts at 3 min 3 s. | Dashboard over the drill window; *Triggered Alerts* lists the 3 alerts at 04:49 and 04:51 UTC |
-| 5 | **RCA summary** (2 min) | DB outage: requests hung 30 s (pool timeout), 30 payments failed, SLI 94.1% for the window, recovered 1 s after the restart. Detection was slowed by the 5-minute alert window; throttled requests were invisible to payment searches. Follow-ups B-22 to B-25. | [rca-2026-11-10.md](rca-2026-11-10.md) sections 1–6 |
+| 4 | **Dashboard + the alert that fired during the sim** (2 min) | Payment SLI, p95, request rate, 5xx rate, errors, consumer failures. 5 alerts as code, each with a runbook section. Drill 1: *Error spike* after 1 min 4 s, payment SLO alerts at 3 min 3 s. Re-run after the fixes: *Database unreachable* and both payment SLO alerts after 40 s. | Dashboard over the re-run window; *Triggered Alerts* lists 4 alerts at 08:48 and the fast burn at 08:49 UTC |
+| 5 | **RCA summary** (2 min) | DB outage: requests hung 30 s (pool timeout), 30 payments failed, SLI 94.1% for the window, recovered 1 s after the restart. Detection was slowed by the 5-minute alert window; throttled requests were invisible to payment searches. Follow-ups B-22 to B-25 done the same day; the re-run failed requests in ~3 s with 503 and alerted in 40 s. | [rca-2026-11-10.md](rca-2026-11-10.md) sections 1–7 |
 
 ## Validation (from the milestone)
 
@@ -38,7 +38,7 @@ Have these open in the browser:
 - [x] **Container images published with tag.** `ghcr.io/akr12403/mortgage-platform/<service>:sha-<commit>`, then `:develop` and semver from `publish`. The same tags are in dev's ECR, which is immutable.
 - [x] **`terraform apply` succeeds in dev.** 48 imported, 44 added, 21 changed, 0 destroyed; the follow-up plan exits 0. Four deploys and a rollback drill since ([record](cicd.md#deployment-record)).
 - [x] **Logs searchable in Splunk by correlationId.** `local-up.sh` proves it on every run (`splunk-check-…`). The RCA trace follows `traffic-d2d1c30e-…`.
-- [x] **Dashboard renders; alert fired during sim.** [Screenshots](rca-2026-11-10.md#3-timeline-utc); 3 alerts fired (timeline above).
+- [x] **Dashboard renders; alert fired during sim.** [Screenshots](rca-2026-11-10.md#3-timeline-utc); all 3 alerts fired in drill 1, and all 5 in the re-run ([§7](rca-2026-11-10.md#7-re-run-after-the-fixes-p-5)).
 - [x] **RCA reviewed and linked in MR.** [rca-2026-11-10.md](rca-2026-11-10.md) was added in PR #114 and is linked from [incident-response.md](incident-response.md#exercises) and the README. Review is the sign-off below.
 
 ## Definition of Done → evidence
@@ -53,8 +53,8 @@ Have these open in the browser:
 | Infrastructure reproducible from IaC | dev rebuilt from code (`tf.sh dev apply`); test and prod plan 90 to add from the same definition; `tests/infrastructure/test_terraform_layout.py` in CI |
 | Logs available in Splunk with correlation IDs | [observability.md](observability.md) (log contract, shipping, troubleshooting) |
 | Dashboard created for mortgage KPIs/errors | [`monitoring/splunk/dashboards/`](../../monitoring/splunk/dashboards/) |
-| Alert created and tested | [`monitoring/splunk/alerts.json`](../../monitoring/splunk/alerts.json); all 3 fired in the drill |
-| Incident simulation completed | `scripts/incident/db_outage_drill.py`, run 2026-11-10 04:44–04:59 UTC |
+| Alert created and tested | [`monitoring/splunk/alerts.json`](../../monitoring/splunk/alerts.json); all 5 fired in the re-run |
+| Incident simulation completed | `scripts/incident/db_outage_drill.py`, run 2026-11-10 04:44–04:59 UTC, re-run after the fixes 08:44–08:59 UTC |
 | RCA submitted and linked in docs/operations | [rca-2026-11-10.md](rca-2026-11-10.md) |
 | Runbook and incident-response updated | [runbook.md](runbook.md): *Startup, deploy and rollback* and *Alerts* (with the drill's database signature). [incident-response.md](incident-response.md) is new. |
 | Merged to develop via reviewed PR(s) | PRs #108 to #114, all with every gate green. Solo project, so human review is the sign-off below. |

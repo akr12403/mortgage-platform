@@ -4,6 +4,8 @@ import com.capstone.servicing.dto.ErrorResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -56,6 +58,28 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AuthenticationException.class)
     public ResponseEntity<ErrorResponse> handleAuthentication(AuthenticationException ex) {
         return error(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Authentication is required");
+    }
+
+    /**
+     * M9 RCA 2026-11-10 (B-22): the database is unreachable (pool timeout, connection refused). 503 + Retry-After
+     * tells clients the failure is temporary and safe to retry (payments carry an Idempotency-Key), instead of a
+     * generic 500. The log line names the outage plainly for the "database unreachable" alert.
+     */
+    @ExceptionHandler({CannotCreateTransactionException.class, DataAccessResourceFailureException.class})
+    public ResponseEntity<ErrorResponse> handleDatabaseUnavailable(RuntimeException ex) {
+        log.error("Database unavailable: {}", rootCause(ex));
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header("Retry-After", "5")
+                .body(new ErrorResponse("SERVICE_UNAVAILABLE",
+                        "The service is temporarily unavailable, please retry", getCorrelationId()));
+    }
+
+    private static String rootCause(Throwable ex) {
+        Throwable t = ex;
+        while (t.getCause() != null && t.getCause() != t) {
+            t = t.getCause();
+        }
+        return t.getClass().getSimpleName() + ": " + t.getMessage();
     }
 
     @ExceptionHandler(RuntimeException.class)

@@ -4,8 +4,9 @@
     python3 scripts/splunk/traffic.py                  # 3 minutes, ~2 requests/s
     python3 scripts/splunk/traffic.py --minutes 15 --workers 6   # incident drill: requests may hang 30 s
 
-Each loop, as the servicing user: list a borrower's mortgages, read one, post a 1.00 payment (unique Idempotency-Key), read its
-servicing history; as admin: analytics event stats. Every request gets its own X-Correlation-ID. Payments go to the
+Each loop: list a borrower's mortgages, read one, post a 1.00 payment (unique Idempotency-Key), read its
+servicing history; analytics event stats (admin). Payments alternate between the servicing user and admin
+(worker parity), the two roles allowed to post them, so 6 workers stay under the 60 writes/min per-user limit. Every request gets its own X-Correlation-ID. Payments go to the
 local development database only (amount 1.00, the same as tests/integration/test_stack_smoke.py).
 Reads AUTH_SEED_PASSWORD from the environment or the repo-root .env; never prints it.
 """
@@ -77,7 +78,10 @@ def worker(n: int, deadline: float, rate: float, servicing: str, admin: str, sta
         elif step == 2:
             payment = {"dueDate": str(date.today() - timedelta(days=1)), "paidDate": str(date.today()),
                        "amount": 1.00, "status": "POSTED"}
-            status, _ = call("POST", f"{MS}/api/v1/mortgages/{mortgage}/payments", servicing, payment,
+            # Payments alternate between the two users allowed to post them, so the per-user write limit
+            # (60/min) is not what a drill measures (RCA 2026-11-10, C-2).
+            writer = servicing if n % 2 == 0 else admin
+            status, _ = call("POST", f"{MS}/api/v1/mortgages/{mortgage}/payments", writer, payment,
                              {"Idempotency-Key": f"traffic-{uuid.uuid4()}"})
             payment_status = status
         elif step == 3:

@@ -12,10 +12,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -34,6 +36,7 @@ class DatabaseFailureIntegrationTest {
     @MockBean
     private PaymentService paymentService;
 
+    // M9 RCA 2026-11-10 (B-22): a database outage is a temporary 503 with Retry-After, not a generic 500.
     @Test
     void whenDatabaseFails_thenReturnsGracefulErrorResponse() throws Exception {
         // Simulate a database connection failure thrown when fetching a mortgage
@@ -42,8 +45,24 @@ class DatabaseFailureIntegrationTest {
 
         mockMvc.perform(get("/api/v1/mortgages/MTG-1001")
                         .header("X-Correlation-ID", "test-db-failure-correlation"))
-                .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string("Retry-After", "5"))
+                .andExpect(jsonPath("$.code").value("SERVICE_UNAVAILABLE"))
                 .andExpect(jsonPath("$.correlationId").value("test-db-failure-correlation"));
+    }
+
+    /** What the drill produced: the connection pool cannot open a connection when a transaction starts. */
+    @Test
+    void whenNoConnectionCanBeObtained_thenReturns503() throws Exception {
+        when(mortgageService.getMortgageById("MTG-1001"))
+                .thenThrow(new CannotCreateTransactionException("Could not open JPA EntityManager for transaction",
+                        new java.sql.SQLTransientConnectionException(
+                                "HikariPool-1 - Connection is not available, request timed out after 3000ms")));
+
+        mockMvc.perform(get("/api/v1/mortgages/MTG-1001"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string("Retry-After", "5"))
+                .andExpect(jsonPath("$.code").value("SERVICE_UNAVAILABLE"))
+                .andExpect(jsonPath("$.message").value("The service is temporarily unavailable, please retry"));
     }
 }

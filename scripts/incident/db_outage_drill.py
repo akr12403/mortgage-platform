@@ -30,7 +30,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PAYMENTS = ('index=mortgage_dev message=http_request service.name=mortgage-service http.method=POST '
-            'http.route="/api/v1/mortgages/{id}/payments"')
+            'http.route="/api/v1/mortgages/{id}/payments" http.status!=429')  # 429 = client throttling, not a failure
 ALERT_PREFIX = "mortgage_dev - "
 
 
@@ -87,8 +87,9 @@ class Drill:
                     rows.append(result)
         return rows
 
-    def fired_alerts(self) -> dict[str, float]:
-        """Alert name -> earliest trigger time, from Splunk's triggered-alerts list (alert.track = 1)."""
+    def fired_alerts(self, since: float) -> dict[str, float]:
+        """Alert name -> earliest trigger time at or after `since`, from Splunk's triggered-alerts list
+        (alert.track = 1). `since` matters: the list keeps the fires of earlier drills."""
         fired: dict[str, float] = {}
         status, text = self.splunk.call("GET", "/servicesNS/-/-/alerts/fired_alerts?count=0")
         if status != 200:
@@ -103,7 +104,7 @@ class Drill:
                 continue
             for instance in json.loads(detail).get("entry", []):
                 trigger = instance.get("content", {}).get("trigger_time")
-                if trigger:
+                if trigger and float(trigger) >= since:
                     fired[name] = min(fired.get(name, float(trigger)), float(trigger))
         return fired
 
@@ -149,7 +150,7 @@ def main() -> None:
         detected: dict[str, float] = {}
         while time.time() < inject + args.outage * 60:
             time.sleep(30)
-            for name, at in sorted(drill.fired_alerts().items(), key=lambda kv: kv[1]):
+            for name, at in sorted(drill.fired_alerts(inject).items(), key=lambda kv: kv[1]):
                 if at >= inject and name not in detected:
                     detected[name] = at
                     drill.mark(f"ALERT FIRED: {name[len(ALERT_PREFIX):]}", at)
@@ -173,7 +174,7 @@ def main() -> None:
             subprocess.run(["docker", "compose", "start", "postgres"], cwd=ROOT)
     end = drill.mark("traffic finished")
     time.sleep(60)  # let the last lines reach the index
-    for name, at in drill.fired_alerts().items():  # alerts that fired after the outage window closed
+    for name, at in drill.fired_alerts(inject).items():  # alerts that fired after the outage window closed
         if at >= inject and not any(name[len(ALERT_PREFIX):] in what for _, what in drill.events):
             drill.mark(f"ALERT FIRED: {name[len(ALERT_PREFIX):]}", at)
 

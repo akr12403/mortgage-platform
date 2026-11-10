@@ -15,7 +15,7 @@
       <title>Payment API success (SLI, target 99.5%)</title>
       <single>
         <search>
-          <query>index=mortgage_dev message=http_request service.name=mortgage-service http.method=POST http.route="/api/v1/mortgages/{id}/payments"
+          <query>index=mortgage_dev message=http_request service.name=mortgage-service http.method=POST http.route="/api/v1/mortgages/{id}/payments" http.status!=429
 | eval good=if('http.status'&lt;500,1,0)
 | stats count as total, sum(good) as good
 | eval sli=if(total&gt;0, round(good/total*100,2), null())
@@ -33,7 +33,7 @@
       <title>Payment latency p95 (target &lt; 500 ms)</title>
       <single>
         <search>
-          <query>index=mortgage_dev message=http_request service.name=mortgage-service http.method=POST http.route="/api/v1/mortgages/{id}/payments"
+          <query>index=mortgage_dev message=http_request service.name=mortgage-service http.method=POST http.route="/api/v1/mortgages/{id}/payments" http.status!=429
 | stats perc95(durationMs) as p95
 | eval p95=round(p95,1)</query>
           <earliest>$window.earliest$</earliest>
@@ -43,6 +43,21 @@
         <option name="rangeColors">["0x53a051","0xf8be34","0xdc4e41"]</option>
         <option name="rangeValues">[400,500]</option>
         <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Database reachable</title>
+      <single>
+        <search>
+          <query>index=mortgage_dev log.level=ERROR ("Database unavailable" OR "Connection is not available")
+| stats count as errors
+| eval status=if(errors&gt;0, "UNREACHABLE (" . errors . " errors)", "OK")
+| fields status</query>
+          <earliest>-5m@m</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="useColors">0</option>
       </single>
     </panel>
     <panel>
@@ -92,7 +107,7 @@
       <title>Payment API latency (POST /api/v1/mortgages/{id}/payments)</title>
       <chart>
         <search>
-          <query>index=mortgage_dev message=http_request service.name=mortgage-service http.method=POST http.route="/api/v1/mortgages/{id}/payments"
+          <query>index=mortgage_dev message=http_request service.name=mortgage-service http.method=POST http.route="/api/v1/mortgages/{id}/payments" http.status!=429
 | timechart span=5m perc50(durationMs) as p50, perc95(durationMs) as p95, max(durationMs) as max</query>
           <earliest>$window.earliest$</earliest>
           <latest>$window.latest$</latest>
@@ -115,6 +130,17 @@
     </panel>
   </row>
   <row>
+    <panel>
+      <title>Throttled requests (429, by route): client limits, not counted as failures</title>
+      <chart>
+        <search>
+          <query>index=mortgage_dev message=http_request http.status=429 | timechart span=1m count by http.route</query>
+          <earliest>$window.earliest$</earliest>
+          <latest>$window.latest$</latest>
+        </search>
+        <option name="charting.chart">column</option>
+      </chart>
+    </panel>
     <panel>
       <title>Latest errors (click a correlationId to follow the request)</title>
       <table>

@@ -5,7 +5,7 @@ The Splunk side of observability is kept as code: what's in Splunk can be recrea
 | File | What |
 | --- | --- |
 | `dashboards/mortgage_platform_overview.xml` | Dashboard *Mortgage Platform: Service Health*, in Simple XML: payment SLI, payment p95, error count, request rate, 5xx rate, payment latency, consumer failures, latest errors (drill down by correlationId) |
-| `alerts.json` | The 3 alerts (payment 5xx rate, payment p95 latency, error spike), each with its runbook link |
+| `alerts.json` | The 5 alerts (payment 5xx rate, payment p95 latency, payment fast burn, error spike, database unreachable), each with its runbook link |
 | `fluent-bit/` | Log shipper configuration: Docker log driver → Splunk HEC (used by `docker-compose.splunk.yml`) |
 
 Index: **`mortgage_dev`**. Sourcetype: **`mortgage:app:json`** (JSON fields extracted at search time). Field names are in the [log contract](../../docs/operations/observability.md#log-contract).

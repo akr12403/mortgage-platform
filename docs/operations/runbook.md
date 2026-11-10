@@ -171,6 +171,26 @@ These alerts come from Splunk, defined in [`monitoring/splunk/alerts.json`](../.
 2. In *Latest errors*, click a `correlationId` to follow one failing request through every service.
 3. If users are affected, escalate following [incident-response.md](./incident-response.md).
 
+### Alert: payment API failing now
+
+**Meaning:** in the last complete minute, at least 3 payment requests ran and half or more failed with 5xx. This is the fast-burn alert (B-23), added after [RCA 2026-11-10](./rca-2026-11-10.md), where a full outage took 3 minutes to reach the 5-minute alerts. Treat it as **SEV-1**.
+
+1. **Is the database unreachable?** Check whether *Database unreachable* fired at the same time, or whether the dashboard's *Database reachable* tile shows UNREACHABLE. If so, follow [that section](#alert-database-unreachable).
+2. **Otherwise:** follow the steps under [payment API 5xx rate](#alert-payment-api-5xx-rate). The cause is the same; it's just caught sooner.
+
+### Alert: database unreachable
+
+**Meaning:** a service can't get a database connection. It logs `Database unavailable: …` or `HikariPool-1 - Connection is not available`. Since B-22, requests needing the database fail after about **3 s** with `503 SERVICE_UNAVAILABLE` and `Retry-After: 5`, instead of hanging 30 s and returning 500.
+
+1. **Confirm:**
+   ```text
+   index=mortgage_dev log.level=ERROR "Database unavailable" earliest=-15m | stats count, latest(message) by service.name
+   ```
+   `Connection refused` means the database is down. A timeout with `total=0` means it's unreachable. `total=10, active=10` means the pool is exhausted (slow queries), which is a different problem: see [payment API latency](#alert-payment-api-latency).
+2. **Restore the database.** Locally: `docker compose ps postgres`, then `docker compose start postgres`. In AWS, check the database instance's status and events.
+3. **Recovery needs no service restart:** the pool reconnects within seconds (1 s in the drill). Confirm on the dashboard that *Database reachable* shows OK and the payment SLI is green.
+4. **Clients retry:** payments carry an `Idempotency-Key`, so a payment retried after a 503 is never posted twice.
+
 ### Alert: payment API 5xx rate
 
 **Meaning:** more than 5% of `POST /api/v1/mortgages/{id}/payments` requests failed with 5xx in 5 minutes. Payments aren't being recorded.
@@ -181,7 +201,7 @@ These alerts come from Splunk, defined in [`monitoring/splunk/alerts.json`](../.
    ```
 2. **Database?** `DataAccessResourceFailureException`, `CannotCreateTransactionException` or `Connection refused` mean PostgreSQL is down or unreachable. The signature seen in the [2026-11-10 drill](./rca-2026-11-10.md) is:
    - `HikariPool-1 - Connection is not available, request timed out after 30001ms (total=0 …)` together with `SQLState: 08001`;
-   - payment `durationMs` of about 30,000, because every request waits out the 30 s pool timeout (B-22 lowers it);
+   - before B-22: payment `durationMs` of about 30,000 and status 500, because every request waited out the 30 s pool timeout. Since B-22: about 3,000 ms and status **503**, with `Database unavailable: …` logged;
    - payment throughput dropping to a few a minute.
    - Locally: `docker compose ps postgres`, then `docker compose start postgres`.
    - The service reconnects by itself (Hikari pool) once the database is back.

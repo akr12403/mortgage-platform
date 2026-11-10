@@ -4,7 +4,9 @@ import com.capstone.mortgage.dto.ErrorResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import com.capstone.mortgage.security.RateLimitExceededException;
@@ -82,6 +84,28 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                 .header("Retry-After", Long.toString(ex.getRetryAfterSeconds()))
                 .body(new ErrorResponse("RATE_LIMITED", ex.getMessage(), getCorrelationId()));
+    }
+
+    /**
+     * M9 RCA 2026-11-10 (B-22): the database is unreachable (pool timeout, connection refused). 503 + Retry-After
+     * tells clients the failure is temporary and safe to retry (payments carry an Idempotency-Key), instead of a
+     * generic 500. The log line names the outage plainly for the "database unreachable" alert.
+     */
+    @ExceptionHandler({CannotCreateTransactionException.class, DataAccessResourceFailureException.class})
+    public ResponseEntity<ErrorResponse> handleDatabaseUnavailable(RuntimeException ex) {
+        log.error("Database unavailable: {}", rootCause(ex));
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header("Retry-After", "5")
+                .body(new ErrorResponse("SERVICE_UNAVAILABLE",
+                        "The service is temporarily unavailable, please retry", getCorrelationId()));
+    }
+
+    private static String rootCause(Throwable ex) {
+        Throwable t = ex;
+        while (t.getCause() != null && t.getCause() != t) {
+            t = t.getCause();
+        }
+        return t.getClass().getSimpleName() + ": " + t.getMessage();
     }
 
     @ExceptionHandler(RuntimeException.class)

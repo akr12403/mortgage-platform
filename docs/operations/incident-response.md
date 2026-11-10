@@ -89,3 +89,4 @@ The AI incident summarizer (M7, `POST /api/v1/assistant/summarize-incident`) can
 | Date | Exercise | Result |
 | --- | --- | --- |
 | 2026-11-10 | PostgreSQL outage under traffic (`scripts/incident/db_outage_drill.py`) | Detected in 1 min 4 s (*Error spike*), payment SLO alerts at 3 min 3 s; root cause found from one correlationId trace; recovered 1 s after the database restart; 30 payments failed. [RCA](rca-2026-11-10.md) |
+| 2026-11-10 | Re-run after the RCA fixes | Detected in 40 s (*Database unreachable* and both payment SLO alerts); failures in ~3 s with 503 instead of 30 s with 500; no 429s. [RCA §7](rca-2026-11-10.md#7-re-run-after-the-fixes-p-5) |

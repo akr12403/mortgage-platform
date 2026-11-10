@@ -32,12 +32,14 @@ index=mortgage_dev message=http_request service.name=mortgage-service http.metho
 
 ## Alerts
 
-These are defined as code in [`monitoring/splunk/alerts.json`](../../monitoring/splunk/alerts.json). Each runs every minute over the last 5 complete minutes, is tracked under *Activity → Triggered Alerts*, and is suppressed for 10 minutes after it fires.
+These are defined as code in [`monitoring/splunk/alerts.json`](../../monitoring/splunk/alerts.json). Each runs every minute over its window (the last 5 complete minutes, or 1 minute for the fast alerts), is tracked under *Activity → Triggered Alerts*, and is suppressed for 10 minutes after it fires. Payment searches leave out `429` (client throttling, not a service failure); throttled requests have their own dashboard panel.
 
 | Alert | Fires when | Why this threshold | Runbook |
 | --- | --- | --- | --- |
+| Payment API failing now (fast burn) | in the last complete minute, ≥ 3 payment requests and ≥ 50% 5xx | a full outage pages within about 1–2 minutes. The 5-minute alerts are diluted by the healthy minutes before the failure, and took 3 min in the [2026-11-10 drill](rca-2026-11-10.md) (B-23). | [runbook](runbook.md#alert-payment-api-failing-now) |
 | Payment API 5xx rate above 5% | more than 5% of at least 5 payment requests returned 5xx in 5 minutes | 10× the error rate the SLO allows. At that burn rate the month's budget lasts about 3 days, so it needs a person now. Slower burns show on the dashboard. | [runbook](runbook.md#alert-payment-api-5xx-rate) |
 | Payment API p95 latency above 500 ms | p95 above 500 ms over at least 5 payment requests in 5 minutes | the latency SLO itself, measured per window | [runbook](runbook.md#alert-payment-api-latency) |
+| Database unreachable | any service logged a database connection failure in the last complete minute | names the cause directly instead of the symptom (B-24) | [runbook](runbook.md#alert-database-unreachable) |
 | Error spike in a service | a service logged 10 or more `ERROR` lines in 5 minutes | catches failures that aren't payment requests: the database, the broker, a consumer failing on poison messages | [runbook](runbook.md#alert-service-error-spike) |
 
 The **minimum of 5 requests** keeps a single failed request on a quiet system from paging anyone.
