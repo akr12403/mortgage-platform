@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import threading
 import time
 import urllib.error
@@ -92,6 +93,34 @@ def worker(n: int, deadline: float, rate: float, servicing: str, admin: str, sta
         time.sleep(1 / rate)
 
 
+def run(minutes: float, rate: float = 2.0, workers: int = 1, out=None) -> dict:
+    """Send traffic for `minutes`; progress every 30 s to `out` (default stdout). Returns the final counts.
+    Also used in-process by scripts/incident/db_outage_drill.py."""
+    out = out or sys.stdout
+    password = seed_password()
+    servicing, admin = login("servicing@capstone.local", password), login("admin@capstone.local", password)
+    stats: Counter = Counter()
+    lock = threading.Lock()
+    deadline = time.time() + minutes * 60
+    print(f"Sending traffic for {minutes:g} min: {workers} worker(s) at ~{rate:g} req/s each (Ctrl-C to stop)",
+          file=out, flush=True)
+    threads = [threading.Thread(target=worker, args=(n, deadline, rate, servicing, admin, stats, lock), daemon=True)
+               for n in range(workers)]
+    for t in threads:
+        t.start()
+    try:
+        while any(t.is_alive() for t in threads):
+            time.sleep(30)
+            with lock:
+                print(f"  {time.strftime('%H:%M:%S')} {dict(sorted(stats.items()))}", file=out, flush=True)
+    except KeyboardInterrupt:
+        pass
+    with lock:
+        final = dict(sorted(stats.items()))
+    print(f"Done: {final}", file=out, flush=True)
+    return final
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--minutes", type=float, default=3)
@@ -99,26 +128,7 @@ def main() -> None:
     parser.add_argument("--workers", type=int, default=1,
                         help="parallel clients; use several when requests may hang (incident drill)")
     args = parser.parse_args()
-    password = seed_password()
-    servicing, admin = login("servicing@capstone.local", password), login("admin@capstone.local", password)
-    stats: Counter = Counter()
-    lock = threading.Lock()
-    deadline = time.time() + args.minutes * 60
-    print(f"Sending traffic for {args.minutes:g} min: {args.workers} worker(s) at ~{args.rate:g} req/s each "
-          f"(Ctrl-C to stop)", flush=True)
-    threads = [threading.Thread(target=worker, args=(n, deadline, args.rate, servicing, admin, stats, lock),
-                                daemon=True) for n in range(args.workers)]
-    for t in threads:
-        t.start()
-    try:
-        while any(t.is_alive() for t in threads):
-            time.sleep(30)
-            with lock:
-                print(f"  {time.strftime('%H:%M:%S')} {dict(sorted(stats.items()))}", flush=True)
-    except KeyboardInterrupt:
-        pass
-    with lock:
-        print(f"Done: {dict(sorted(stats.items()))}", flush=True)
+    run(args.minutes, args.rate, args.workers)
 
 
 if __name__ == "__main__":

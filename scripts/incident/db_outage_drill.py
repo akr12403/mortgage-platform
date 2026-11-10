@@ -5,7 +5,7 @@
     python3 scripts/incident/db_outage_drill.py --baseline 2 --outage 5 --after 4
 
 What it does (every step timestamped in UTC):
-  1. starts traffic (scripts/splunk/traffic.py, 6 parallel workers: requests hang ~30 s while the DB is down)
+  1. starts traffic in-process (scripts/splunk/traffic.py run(), 6 workers: requests hang ~30 s while the DB is down)
   2. after the baseline: INJECT  docker compose stop postgres
   3. while the DB is down: polls Splunk for the alerts as they fire (detection time per alert)
   4. after the outage window: RECOVER  docker compose start postgres, waits until it is healthy
@@ -22,6 +22,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import threading
 import time
 import urllib.parse
 from datetime import datetime, timezone
@@ -44,11 +45,15 @@ def load_local_env() -> None:
             os.environ.setdefault(key, value)
 
 
-def splunk_client():
-    spec = importlib.util.spec_from_file_location("splunk_apply", ROOT / "scripts" / "splunk" / "apply.py")
+def load_script(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.Splunk()
+    return module
+
+
+def splunk_client():
+    return load_script("splunk_apply", ROOT / "scripts" / "splunk" / "apply.py").Splunk()
 
 
 def utc(epoch: float | None = None) -> str:
@@ -132,9 +137,11 @@ def main() -> None:
     minutes = args.baseline + args.outage + args.after + 1
     traffic_log = (out / "traffic.log").open("w")
     inject = float("inf")  # set when the failure is injected
-    traffic = subprocess.Popen([sys.executable, str(ROOT / "scripts" / "splunk" / "traffic.py"),
-                                "--minutes", str(minutes), "--workers", "6", "--rate", "1"],
-                               cwd=ROOT, stdout=traffic_log, stderr=subprocess.STDOUT)
+    # The traffic generator runs in this process (a thread), not as a child process.
+    traffic_module = load_script("splunk_traffic", ROOT / "scripts" / "splunk" / "traffic.py")
+    traffic = threading.Thread(target=traffic_module.run, kwargs={
+        "minutes": minutes, "rate": 1.0, "workers": 6, "out": traffic_log}, daemon=True)
+    traffic.start()
     try:
         time.sleep(args.baseline * 60)
         inject = drill.mark("INJECT: docker compose stop postgres")
@@ -158,10 +165,9 @@ def main() -> None:
             if rows and rows[0].get("first"):
                 drill.mark("service recovered: first successful payment after recovery", float(rows[0]["first"]))
                 break
-        traffic.wait()
+        traffic.join()
     finally:
-        if traffic.poll() is None:
-            traffic.terminate()
+        traffic.join(timeout=60)  # workers stop at their deadline; daemon threads end with the drill
         traffic_log.close()
         if not postgres_healthy():
             subprocess.run(["docker", "compose", "start", "postgres"], cwd=ROOT)
