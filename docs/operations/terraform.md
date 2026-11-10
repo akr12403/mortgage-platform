@@ -118,6 +118,19 @@ The images must be in the environment's ECR repositories first. The part B deplo
 | `iam-verify.sh`, `s3-verify.sh`, `lambda-verify.sh`, `pipeline-run.sh`, `reconcile.sh`, `lookup-load.sh`, `compose-aws-up.sh` | Still used. They only read or exercise the resources, so they work the same on the Terraform-managed ones. |
 | `teardown.sh` | Replaced by `tf.sh dev destroy` |
 
+## CI
+
+**Sandbox status:** CI can't reach AWS, because the SCP denies the GitHub OIDC provider. In CI, `infra.yml` runs `fmt` and `validate` only. Plans, applies and the drift check run locally with `tf.sh`, and deploys with [`scripts/deploy/deploy-dev.sh`](../../scripts/deploy/deploy-dev.sh). The table describes the CI path, which a single flag enables ([cicd.md](cicd.md#deploy-part-b)).
+
+| When | What runs | Role |
+| --- | --- | --- |
+| PR changing `infrastructure/**`, `scripts/terraform/**` or `infra.yml` | `fmt -check`, `validate` (no AWS), then `plan` for dev, test and prod, summarized in the run | `capstone-mortgage-ci-plan` (read-only) |
+| Push to `develop` | `ci / deploy-dev`: images to ECR, then `apply` dev with the new `image_tag` | `capstone-mortgage-ci-deploy-dev` |
+| Nightly | `infra / drift check (dev)`: `plan -detailed-exitcode`. Exit 2 fails the run. | plan role |
+| Manual | test plan, prod dry run, dev apply (rollback/redeploy) | plan role, or the deploy role for a dev apply |
+
+CI plans use the image tag that's already running (`scripts/ci/current-image-tag.sh`), so they show infrastructure changes only. The roles, the OIDC provider and the state bucket are in `bootstrap/` and are applied only from the developer session. Details are in [cicd.md](cicd.md#aws-access-from-ci).
+
 ## State and locking
 
 - **Location:** `s3://capstone-mortgage-tfstate-<account>/mortgage-platform/<env>/terraform.tfstate`. Each environment has its own key.
@@ -141,7 +154,7 @@ Everything is charged against the sandbox credits ($100, Free plan). The account
 | --- | --- | --- |
 | Remote state "S3 + DynamoDB lock" | S3 with native locking (`use_lockfile`), no DynamoDB lock table | Terraform 1.10 added S3-native locking, and DynamoDB locking for the S3 backend is deprecated. One fewer resource, and the same guarantee. |
 | "RDS or EC2/ECS placeholder" | ECS Fargate services at `desired_count = 0`, with database host as a placeholder | Keeps idle cost near zero (decision recorded in M9 planning) |
-| plan/apply for every environment | dev applied, test and prod plan-only | One sandbox account with limited credits. The identical-definition test makes a test or prod apply a tfvars change, not a code change. |
+| plan/apply for every environment from CI | dev: plan on PRs, apply on every `develop` push (CI); test and prod: plan-only, manual | One sandbox account with limited credits. The identical-definition test makes a test or prod apply a tfvars change, not a code change. |
 
 Related:
 - [drift exercise](terraform-drift-exercise.md)

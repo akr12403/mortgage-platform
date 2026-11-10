@@ -118,4 +118,48 @@ Record each rotation (secret, environment, date, who, reason) in the team's chan
 
 ## Startup, deploy and rollback
 
-*Added in M9/M10.* Until then, local start-up is in the root `README.md` and messaging operations are in [messaging-runbook.md](./messaging-runbook.md).
+Local start-up is in the root `README.md`, and messaging operations are in [messaging-runbook.md](./messaging-runbook.md). This section covers AWS (M9): how a change reaches dev, how to check it, and how to undo it. The pipeline is described in [cicd.md](./cicd.md#deploy-part-b) and the infrastructure in [terraform.md](./terraform.md).
+
+### How a change reaches dev
+
+1. A PR is merged into `develop`.
+2. `ci` builds, tests and scans it. Merging is blocked if a gate fails.
+3. `publish` tags the tested images `:develop`.
+4. The same `sha-<commit>` images are copied to dev's ECR, and `terraform apply` runs for dev with that tag. **In the sandbox a person runs this step**: `bash scripts/deploy/deploy-dev.sh sha-<commit>`, the command printed by `ci / deploy-dev (run locally)`, because CI has no AWS access ([why](./cicd.md#deploy-part-b)). With OIDC enabled, the `deploy-dev` job runs it.
+
+Nothing is rebuilt between the scan and the deployment. If a PR changes infrastructure, its `infra` plans have already shown what the apply will do.
+
+### Verify a deployment
+
+| Check | Where | Healthy |
+| --- | --- | --- |
+| The run | `deploy-dev.sh` step 5, or the *deploy-dev* run summary (OIDC) | `Apply complete!`; every service lists the new task definition revision with rollout `COMPLETED` |
+| Image in use | `bash scripts/ci/current-image-tag.sh dev` (with a session) | `sha-<the merged commit>` |
+| No drift left | `bash scripts/terraform/tf.sh dev plan -detailed-exitcode` | exit 0 |
+| Services (when `desired_count` ≥ 1) | ECS console or `aws ecs describe-services --cluster capstone-mortgage-dev --services mortgage-service ...` | running = desired, health checks passing |
+
+### Rollback
+
+Pick the row that matches what went wrong:
+
+| Situation | Action | Time |
+| --- | --- | --- |
+| **New tasks never become healthy** (crash loop, failing health check) | Nothing to do. The ECS **deployment circuit breaker** stops the deployment and returns the service to the last working task definition by itself. Confirm in the service's *Deployments* tab (`ROLLBACK_SUCCESSFUL`), then fix forward with a new PR. | automatic, ~5–10 min |
+| **New version is healthy but wrong** (bug, bad data) | **Roll back the image:** `bash scripts/deploy/deploy-dev.sh <last good tag>` (sandbox), or with OIDC *Actions → infra → Run workflow*, branch `develop`, environment `dev`, action `apply`, `image_tag` = the last good tag. Find that tag in the previous green `deploy-dev` summary, or with `aws ecr describe-images --repository-name capstone-mortgage-dev/mortgage-service --query 'sort_by(imageDetails,&imagePushedAt)[-5:].imageTags'`. The tag is reused from ECR as it was tested, nothing is rebuilt, and Terraform only changes the task definitions. | ~3 min |
+| **An infrastructure change broke something** | **Revert in Git:** `git revert <merge commit>`, open a PR (its `infra` plan shows the undo), merge, and deploy it (`deploy-dev.sh`, or `deploy-dev` with OIDC). Don't change resources in the console: the nightly drift check would flag it, and the next apply would undo it. | ~15 min (full pipeline) |
+| **Urgent, and the pipeline itself is broken** (break-glass) | From a laptop with the developer session: `aws login --profile capstone-dev`, then `bash scripts/terraform/tf.sh dev apply -var image_tag=<last good tag>`. Afterwards, record what was done and why in the incident record, and make sure `develop` matches, because the next `deploy-dev` applies whatever `develop` says. | ~5 min |
+| **Terraform state damaged** (bad import, interrupted apply that left wrong state) | The state bucket is versioned. In S3, open `capstone-mortgage-tfstate-<account>/mortgage-platform/dev/terraform.tfstate` → *Versions*, download the last good version and upload it as the current version. Then run `tf.sh dev plan`, which shows what differs from AWS, and apply. Old versions are kept for 30 days. | ~10 min |
+
+**Rollback limits.**
+- The GitHub registry keeps every `sha-…` image. dev's ECR keeps the **last 10** per service. To roll back to anything older, pass its tag anyway: the rollback run copies it from GHCR first.
+- Messages already processed by a bad version aren't undone. Check the DLQs (`capstone-mortgage-*-dlq-dev`, see [messaging-runbook.md](./messaging-runbook.md)) and redrive them after the rollback.
+- A database schema change is not rolled back by an image rollback. Migrations must stay backward-compatible with the previous version (expand, then contract).
+
+### When the deployment itself fails
+
+| Symptom in `deploy-dev` | Cause | Fix |
+| --- | --- | --- |
+| `Not authorized to perform sts:AssumeRoleWithWebIdentity` | The run isn't on `develop` (the deploy role trusts `develop` only), or a secret is missing | Run from `develop`; check the 3 repository secrets ([cicd.md](./cicd.md#aws-access-from-ci)) |
+| `AccessDenied` on a resource during apply | The change touches something outside the deploy role's scope, such as a new kind of resource | Extend `bootstrap/ci-roles.tf` in a PR and apply bootstrap with the developer session, or apply this one change break-glass and record it |
+| `Error acquiring the state lock` | Another plan or apply holds the lock, or a run was cancelled mid-apply | Wait and re-run (jobs wait 120 s). If no run is active: `bash scripts/terraform/tf.sh dev force-unlock <lock id>` (the id is in the error) |
+| An image is missing in GHCR | That commit never passed `publish` | Deploy only tags from green `ci` runs |
