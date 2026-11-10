@@ -1,0 +1,37 @@
+# M10 E2E stack overrides. Used only by scripts/ci/e2e-tests.sh (the pipeline's e2e-tests job), never for
+# everyday local use:
+#   COMPOSE_FILE=docker-compose.yml:tests/e2e/docker-compose.e2e.yml  (set by the script, with E2E_TLS_DIR)
+# Journey J5 then runs against the real knowledge-assistant code with the offline embedder (EMBEDDING_PROVIDER=fake)
+# and an LLM stub (tests/e2e/llm-stub/llm_stub.py), so the pipeline needs no LLM API key. Locally, J5 runs against
+# your own stack and your real LLM (tests/e2e/README.md).
+services:
+  llm-stub:
+    image: capstone/knowledge-assistant:dev     # reuses the assistant's Python runtime: no extra image to pull
+    container_name: llm-stub
+    command: ["python", "/e2e/llm_stub.py"]
+    environment:
+      STUB_CERT: /e2e-tls/server.pem
+      STUB_KEY: /e2e-tls/server-key.pem
+    volumes:
+      - ./tests/e2e/llm-stub/llm_stub.py:/e2e/llm_stub.py:ro
+      - ${E2E_TLS_DIR:?set by scripts/ci/e2e-tests.sh}:/e2e-tls:ro
+    healthcheck:
+      disable: true
+    restart: "no"
+
+  knowledge-assistant:
+    environment:
+      LLM_API_BASE: https://llm-stub:8443/v1
+      LLM_API_KEY: e2e-stub              # not a credential: the stub accepts anything
+      LLM_MODEL: e2e-llm-stub
+      EMBEDDING_PROVIDER: fake
+      SSL_CERT_FILE: /e2e-tls/ca.pem     # trust the throwaway CA, and only it
+    volumes:
+      - ${E2E_TLS_DIR:?set by scripts/ci/e2e-tests.sh}:/e2e-tls:ro
+    depends_on:
+      llm-stub:
+        condition: service_started
+
+  knowledge-ingest:
+    environment:
+      EMBEDDING_PROVIDER: fake

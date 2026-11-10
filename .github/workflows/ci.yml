@@ -1,15 +1,18 @@
 # M9 Task 9.1: the CI/CD pipeline (GitHub Actions; .gitlab-ci.yml is the documented equivalent).
 # Guide: docs/operations/cicd.md
 #
-#   build -> unit tests ----------------------------\
-#   secret-detection, sast, dependency-scanning -----> container-build -> container-scan -> integration-tests -> publish
-#                                                                                              -> deploy-dev (develop only)
+#   build -> unit tests ----------------------------\                                    /-> integration-tests -\
+#   secret-detection, sast, dependency-scanning -----> container-build -> container-scan -+                       +-> publish
+#                                                                                         \-> e2e-tests ---------/     |
+#                                                                                                    deploy-dev (develop only)
+# E2E (M10): the five Cucumber journeys J1-J5 (tests/e2e) run on the same scanned images as the integration tests,
+# in parallel with them; both must pass before anything is published. Guide: docs/operations/test-strategy.md
 # Deploy (part B): deploy-dev copies the tested images to dev's ECR and runs terraform apply for dev with that tag.
 # It needs GitHub OIDC (repository variable AWS_OIDC_ENABLED = true). The sandbox SCP blocks the OIDC provider, so
 # there the job is replaced by deploy-dev-local, which tells you to run scripts/deploy/deploy-dev.sh <tag> yourself.
 # test/prod are gated: manual runs of .github/workflows/infra.yml (plan / prod dry run); rollback is a manual run too.
 # Images: ghcr.io/<owner>/mortgage-platform/<service>:sha-<7> for every run that reaches container-build;
-# promoted to :develop / :main and to :<semver> for v* tags only after the scan and the integration tests pass.
+# promoted to :develop / :main and to :<semver> for v* tags only after the scan, the integration and the E2E tests pass.
 # Security gates (secret-detection, sast, dependency-scanning) keep the M6 job names used by branch protection.
 name: ci
 
@@ -216,10 +219,48 @@ jobs:
         if: always()
         run: docker compose down -v --remove-orphans || true
 
+  # ------------------------------------------------------------------ E2E journeys J1-J5 (M10 quality gate)
+  e2e-tests:
+    name: e2e-tests
+    needs: container-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    env:
+      COMPOSE_FILE: docker-compose.yml:tests/e2e/docker-compose.e2e.yml
+      E2E_TLS_DIR: ${{ github.workspace }}/reports/e2e/tls
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with: { node-version: "22", cache: npm, cache-dependency-path: tests/e2e/package-lock.json }
+      - uses: docker/login-action@v4
+        with: { registry: "${{ env.REGISTRY }}", username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
+      - name: Start the stack from the pipeline's images (LLM stub for J5), run the Cucumber journeys
+        env:
+          IMAGE_TAG: sha-${{ github.sha }}
+        run: bash scripts/ci/e2e-tests.sh
+      - name: Test summary
+        if: always()
+        run: python3 scripts/ci/junit_summary.py "e2e-tests" reports/junit >> "$GITHUB_STEP_SUMMARY"
+      - name: Stack logs on failure
+        if: failure()
+        run: docker compose logs --no-color > reports/compose-logs.txt 2>&1 || true
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: e2e-report
+          path: "reports/e2e/cucumber-report.html\nreports/junit/e2e-cucumber.xml\nreports/compose-logs.txt"
+          if-no-files-found: warn
+      - name: Stop the stack
+        if: always()
+        run: docker compose down -v --remove-orphans || true
+
   # ------------------------------------------------------------------ Publish (promote tested images)
   publish:
     name: publish
-    needs: integration-tests
+    needs: [integration-tests, e2e-tests]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10

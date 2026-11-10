@@ -145,14 +145,20 @@ gate_sca_java() {
 }
 
 gate_sca_npm() {
-  log "SCA: clients/mortgage-api-consumer (npm lockfile via trivy, including dev/build dependencies)"
-  trivy_rc=0
-  trivy_dir ts-client clients/mortgage-api-consumer --include-dev-deps || trivy_rc=$?
-  case $trivy_rc in
-    0) pass "ts-client: no fixable CRITICAL CVEs" ;;
-    "$TRIVY_VULN_RC") fail "ts-client: fixable CRITICAL CVE(s), see $REPORTS/trivy-ts-client.txt"; return 1 ;;
-    *) fail "ts-client: trivy scan error (exit $trivy_rc), see $REPORTS/trivy-ts-client.txt"; return 1 ;;
-  esac
+  npm_rc=0
+  # The TS client and the M10 E2E suite (tests/e2e): npm lockfiles via trivy, including dev/build dependencies.
+  for entry in ts-client:clients/mortgage-api-consumer e2e-tests:tests/e2e; do
+    label=${entry%%:*}; dir=${entry#*:}
+    log "SCA: $dir (npm lockfile via trivy, including dev/build dependencies)"
+    trivy_rc=0
+    trivy_dir "$label" "$dir" --include-dev-deps || trivy_rc=$?
+    case $trivy_rc in
+      0) pass "$label: no fixable CRITICAL CVEs" ;;
+      "$TRIVY_VULN_RC") fail "$label: fixable CRITICAL CVE(s), see $REPORTS/trivy-$label.txt"; npm_rc=1 ;;
+      *) fail "$label: trivy scan error (exit $trivy_rc), see $REPORTS/trivy-$label.txt"; npm_rc=1 ;;
+    esac
+  done
+  return $npm_rc
 }
 
 # The audit runs inside a throwaway venv so it sees exactly the packages the service resolves today.

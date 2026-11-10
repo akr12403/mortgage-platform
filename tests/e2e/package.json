@@ -1,0 +1,20 @@
+{
+  "name": "mortgage-platform-e2e",
+  "version": "1.0.0",
+  "description": "M10 Tasks 10.2-10.3: the five end-to-end journeys (J1-J5) as Cucumber features, driven through Playwright's API request context",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "cucumber-js",
+    "cucumber": "cucumber-js",
+    "test:journey": "cucumber-js --tags",
+    "dry-run": "cucumber-js --dry-run --format summary"
+  },
+  "devDependencies": {
+    "@cucumber/cucumber": "^13.3.0",
+    "playwright-core": "^1.65.0"
+  }
+}
