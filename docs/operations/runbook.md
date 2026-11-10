@@ -163,3 +163,48 @@ Pick the row that matches what went wrong:
 | `AccessDenied` on a resource during apply | The change touches something outside the deploy role's scope, such as a new kind of resource | Extend `bootstrap/ci-roles.tf` in a PR and apply bootstrap with the developer session, or apply this one change break-glass and record it |
 | `Error acquiring the state lock` | Another plan or apply holds the lock, or a run was cancelled mid-apply | Wait and re-run (jobs wait 120 s). If no run is active: `bash scripts/terraform/tf.sh dev force-unlock <lock id>` (the id is in the error) |
 | An image is missing in GHCR | That commit never passed `publish` | Deploy only tags from green `ci` runs |
+
+## Alerts
+
+These alerts come from Splunk, defined in [`monitoring/splunk/alerts.json`](../../monitoring/splunk/alerts.json), and the thresholds are explained in [slo.md](./slo.md). Each one starts the same way:
+1. Open the dashboard *Mortgage Platform: Service Health*.
+2. In *Latest errors*, click a `correlationId` to follow one failing request through every service.
+3. If users are affected, escalate following [incident-response.md](./incident-response.md).
+
+### Alert: payment API 5xx rate
+
+**Meaning:** more than 5% of `POST /api/v1/mortgages/{id}/payments` requests failed with 5xx in 5 minutes. Payments aren't being recorded.
+
+1. **Find the error:**
+   ```text
+   index=mortgage_dev service.name=mortgage-service log.level=ERROR earliest=-15m | stats count by error.type, message
+   ```
+2. **Database?** `DataAccessResourceFailureException`, `CannotCreateTransactionException` or `Connection refused` mean PostgreSQL is down or unreachable.
+   - Locally: `docker compose ps postgres`, then `docker compose start postgres`.
+   - The service reconnects by itself (Hikari pool) once the database is back.
+3. **Broker?** A 5xx with an SNS or `EventPublisher` error means the payment was saved but its event wasn't published. See [messaging-runbook.md](./messaging-runbook.md).
+4. **A recent deployment?** Compare the start of the errors with the last deploy in [cicd.md](./cicd.md#deployment-record). If they line up, [roll back](#rollback).
+5. **Afterwards:** confirm the dashboard's payment SLI tile is green again, and record how much error budget was used ([slo.md](./slo.md)).
+
+### Alert: payment API latency
+
+**Meaning:** the p95 of payment requests went above 500 ms over 5 minutes.
+
+1. **Slow everywhere, or only payments?**
+   ```text
+   index=mortgage_dev message=http_request earliest=-15m | stats perc95(durationMs) by service.name, http.route
+   ```
+2. **Only `mortgage-service`:** the database is the usual cause (locks, a slow query, the connection pool exhausted).
+   - Look for `HikariPool` warnings: `index=mortgage_dev service.name=mortgage-service log.level=WARN earliest=-15m`.
+   - Check `docker stats` for CPU or memory pressure.
+3. **Every service:** the host (laptop, or ECS task size) is saturated, or a dependency is slow.
+4. **Still slow after 15 minutes with no cause found:** escalate.
+
+### Alert: service error spike
+
+**Meaning:** one service logged 10 or more `ERROR` lines in 5 minutes. The alert result names the service and its last error.
+
+1. **The same error, repeated?** Group them by `error.type` and `message` (the query in the 5xx alert above, with `service.name=<the service>`).
+2. **A consumer (`servicing-service`, `mortgage-analytics-service`) failing on the same event:** this is a poison message. After 3 receives SQS moves it to the DLQ; inspect it and redrive it as described in [messaging-runbook.md](./messaging-runbook.md).
+3. **A dependency down** (database, LocalStack/SQS, the AI provider for `mortgage-knowledge-assistant`): restore it, and the errors stop by themselves.
+4. **Errors started with a deployment:** [roll back](#rollback).
