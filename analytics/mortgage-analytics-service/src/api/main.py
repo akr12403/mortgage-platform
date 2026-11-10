@@ -1,4 +1,5 @@
 import os
+import time
 import uuid
 import logging
 from contextlib import asynccontextmanager
@@ -13,11 +14,10 @@ from src.api.dependencies import validate_db_settings
 from src.api.hardening import security_headers_for
 from src.api.routes.documents import MAX_UPLOAD_BYTES
 
-# Configure logging
-logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO"),
-    format="%(asctime)s %(levelname)s %(name)s service=mortgage-analytics-service - %(message)s",
-)
+from src.observability import configure_logging, correlation_id_var, log_http_request
+
+# M9 Task 9.3: one JSON object per line with correlationId on every line (docs/operations/observability.md)
+configure_logging("mortgage-analytics-service")
 logger = logging.getLogger(__name__)
 
 
@@ -72,12 +72,18 @@ async def correlation_id_middleware(request: Request, call_next):
     correlation_id = request.headers.get("X-Correlation-Id")
     if not correlation_id:
         correlation_id = str(uuid.uuid4())
-    
+
     request.state.correlation_id = correlation_id
-    
-    response = await call_next(request)
-    response.headers["X-Correlation-Id"] = correlation_id
-    return response
+    token = correlation_id_var.set(correlation_id)  # every log line of this request carries it
+    started, status = time.perf_counter(), 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        response.headers["X-Correlation-Id"] = correlation_id
+        return response
+    finally:
+        log_http_request(request.scope, request.method, request.url.path, status, started)
+        correlation_id_var.reset(token)
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
@@ -110,7 +116,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     correlation_id = getattr(request.state, "correlation_id", "unknown")
-    logger.exception("Unhandled request error; correlationId=%s", correlation_id)
+    # Runs outside the correlation middleware (Starlette ServerErrorMiddleware): pass the id explicitly.
+    logger.exception("Unhandled request error", extra={"correlationId": correlation_id})
     return JSONResponse(
         status_code=500,
         content={

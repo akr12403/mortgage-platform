@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -33,14 +34,13 @@ from src.ops.prompts import INCIDENT_PROMPT_VERSION
 from src.rag.prompts import ASK_PROMPT_VERSION
 from src.rag.retriever import Retriever
 from src.rag.service import AssistantService, QuestionError
+from src.observability import configure_logging, correlation_id_var, log_http_request
 from src.store.vector_store import PgVectorStore, VectorStoreError
 
 SERVICE_NAME = "mortgage-knowledge-assistant"
 
-logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO"),
-    format=f"%(asctime)s %(levelname)s %(name)s service={SERVICE_NAME} - %(message)s",
-)
+# M9 Task 9.3: one JSON object per line with correlationId on every line (docs/operations/observability.md)
+configure_logging(SERVICE_NAME)
 logger = logging.getLogger(__name__)
 
 ASK_PATH = "/api/v1/assistant/ask"
@@ -115,9 +115,16 @@ async def security_headers_middleware(request: Request, call_next):
 async def correlation_id_middleware(request: Request, call_next):
     correlation_id = correlation_id_from(request.headers.get("X-Correlation-Id"))
     request.state.correlation_id = correlation_id
-    response = await call_next(request)
-    response.headers["X-Correlation-Id"] = correlation_id
-    return response
+    token = correlation_id_var.set(correlation_id)  # every log line of this request carries it
+    started, status = time.perf_counter(), 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        response.headers["X-Correlation-Id"] = correlation_id
+        return response
+    finally:
+        log_http_request(request.scope, request.method, request.url.path, status, started)
+        correlation_id_var.reset(token)
 
 
 @app.exception_handler(HTTPException)
@@ -145,7 +152,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
-    logger.exception("Unhandled request error; correlationId=%s", getattr(request.state, "correlation_id", "-"))
+    # Runs outside the correlation middleware (Starlette ServerErrorMiddleware): pass the id explicitly.
+    logger.exception("Unhandled request error",
+                     extra={"correlationId": getattr(request.state, "correlation_id", "-")})
     return _envelope(request, 500, "INTERNAL_ERROR", "An unexpected error occurred")
 
 
