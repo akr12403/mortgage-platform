@@ -19,6 +19,8 @@ from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
+from src.observability import correlation_id_var
+
 logger = logging.getLogger(__name__)
 
 KNOWN_EVENT_TYPES = {"MortgageCreated", "LoanApproved", "PaymentReceived", "PaymentMissed", "LoanDelinquent"}
@@ -75,6 +77,14 @@ class AnalyticsEventProcessor:
     def handle(self, body: str) -> str:
         """Returns PROCESSED, DUPLICATE or SKIPPED. Raises InvalidEventError / other errors on failure."""
         event = parse_envelope(body)
+        # The publisher's correlationId (the original HTTP request) goes on every log line written for this event.
+        token = correlation_id_var.set(str(event["correlationId"]))
+        try:
+            return self._handle(event)
+        finally:
+            correlation_id_var.reset(token)
+
+    def _handle(self, event: dict) -> str:
         event_id = str(event["eventId"])
         event_type = event["eventType"]
 
@@ -85,7 +95,7 @@ class AnalyticsEventProcessor:
 
         if event_type not in KNOWN_EVENT_TYPES:
             logger.warning("Skipping unknown eventType %s (eventId=%s, correlationId=%s)",
-                           event_type, event_id, event["correlationId"])
+                           event_type, event_id, event["correlationId"], extra={"eventId": event_id})
             self._remember(event_id)
             return "SKIPPED"
 
@@ -109,7 +119,8 @@ class AnalyticsEventProcessor:
             }
         self._remember(event_id)
         logger.info("Processed %s for %s (eventId=%s, correlationId=%s)", event_type,
-                    event["payload"]["mortgageExternalId"], event_id, event["correlationId"])
+                    event["payload"]["mortgageExternalId"], event_id, event["correlationId"],
+                    extra={"eventId": event_id, "eventType": event_type})
         return "PROCESSED"
 
     def record_failure(self) -> None:
