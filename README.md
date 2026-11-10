@@ -315,7 +315,7 @@ bash scripts/aws/teardown.sh           # remove everything M8 created
 | Task | Status | Where |
 | --- | --- | --- |
 | 9.1 CI/CD pipeline, part A: build, unit tests, security gates, container build and scan, integration tests, publish | Done (PR #108; green on `develop`) | [`ci.yml`](.github/workflows/ci.yml), [CI/CD guide](docs/operations/cicd.md) |
-| 9.1 CI/CD pipeline, part B: deploy dev, gated test/prod, rollback | Pipeline stops at publish and hands off. dev deploy/rollback = `scripts/deploy/deploy-dev.sh` (developer session), because the sandbox SCP blocks GitHub OIDC. CI deploy implemented, switched off (B-20). | [deploy](docs/operations/cicd.md#deploy-part-b), [rollback](docs/operations/runbook.md#rollback) |
+| 9.1 CI/CD pipeline, part B: deploy dev, gated test/prod, rollback | Done (PR #110). dev deployed with `scripts/deploy/deploy-dev.sh` (developer session; the sandbox SCP blocks GitHub OIDC, so the CI deploy is implemented but switched off, B-20); rollback drill passed ([record](docs/operations/cicd.md#deployment-record)) | [deploy](docs/operations/cicd.md#deploy-part-b), [rollback](docs/operations/runbook.md#rollback) |
 | 9.2 Terraform: 5 modules, dev/test/prod, S3 remote state with locking, M8 resources imported, drift exercise | dev applied (M8 resources imported: 48 imported, 44 added, 0 destroyed; follow-up plan clean); drift exercise passed; test/prod plan-only | [`infrastructure/terraform/`](infrastructure/terraform/), [Terraform guide](docs/operations/terraform.md), [drift exercise](docs/operations/terraform-drift-exercise.md) |
 | 9.3 Observability (Splunk) · 9.4 incident simulation | Waiting for the instructor's Splunk HEC token | |
 
