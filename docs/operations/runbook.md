@@ -179,7 +179,10 @@ These alerts come from Splunk, defined in [`monitoring/splunk/alerts.json`](../.
    ```text
    index=mortgage_dev service.name=mortgage-service log.level=ERROR earliest=-15m | stats count by error.type, message
    ```
-2. **Database?** `DataAccessResourceFailureException`, `CannotCreateTransactionException` or `Connection refused` mean PostgreSQL is down or unreachable.
+2. **Database?** `DataAccessResourceFailureException`, `CannotCreateTransactionException` or `Connection refused` mean PostgreSQL is down or unreachable. The signature seen in the [2026-11-10 drill](./rca-2026-11-10.md) is:
+   - `HikariPool-1 - Connection is not available, request timed out after 30001ms (total=0 …)` together with `SQLState: 08001`;
+   - payment `durationMs` of about 30,000, because every request waits out the 30 s pool timeout (B-22 lowers it);
+   - payment throughput dropping to a few a minute.
    - Locally: `docker compose ps postgres`, then `docker compose start postgres`.
    - The service reconnects by itself (Hikari pool) once the database is back.
 3. **Broker?** A 5xx with an SNS or `EventPublisher` error means the payment was saved but its event wasn't published. See [messaging-runbook.md](./messaging-runbook.md).
