@@ -156,6 +156,6 @@ Status: **Mitigated** = control built and tested · **Partial** = the control ex
 
 ## Sign-off
 
-- [ ] Team peer review (date, reviewer)
+- [ ] Team peer review: Sumanth Donur, due 2026-11-10 (tick when done)
 - [ ] Instructor review (date)
 - [x] Linked to risk register entries

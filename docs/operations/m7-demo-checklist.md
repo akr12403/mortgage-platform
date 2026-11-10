@@ -74,4 +74,4 @@ The M6 threat model and risk register now cover the assistant: threats **T-26 to
 
 ## Sign-off
 
-- [ ] **Reviewed by a peer or the instructor** at the M7 review session: demo run, prompt library and governance read, T-26 to T-32 and R-18 to R-20 agreed. Reviewer and date: ____________________
+- [ ] **Reviewed by a peer or the instructor** at the M7 review session: demo run, prompt library and governance read, T-26 to T-32 and R-18 to R-20 agreed. Reviewer: **Sumanth Donur**. Review due: **2026-11-10**. Tick this box when the review is done.

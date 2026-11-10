@@ -67,5 +67,5 @@ No residual risk is in the High band.
 ## Review
 
 - Reviewed at every milestone sign-off, and whenever an endpoint, role or data store is added.
-- [ ] Peer review (date, reviewer)
+- [ ] Peer review: Sumanth Donur, due 2026-11-10 (tick when done)
 - [ ] Instructor review (date)
