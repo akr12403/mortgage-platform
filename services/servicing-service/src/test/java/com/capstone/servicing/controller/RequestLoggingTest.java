@@ -22,6 +22,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
 /** M9 Task 9.3: JSON log lines and the per-request http_request line (docs/operations/observability.md). */
@@ -63,6 +64,21 @@ class RequestLoggingTest {
     void healthChecksAreNotRequestTraffic(CapturedOutput output) throws Exception {
         mockMvc.perform(get("/actuator/health"));
         assertThat(requestLines(output)).isEmpty();
+    }
+
+    /** M9 RCA 2026-11-10 (B-25): a request rejected by the security filter chain is logged with its route template. */
+    @Test
+    void rejectedBeforeRoutingStillLogsTheRouteTemplate(CapturedOutput output) throws Exception {
+        String cid = "test-corr-rejected-01";
+        int actual = mockMvc.perform(get("/api/v1/mortgages/MTG-9999/servicing-history").header("X-Correlation-ID", cid).with(anonymous()))
+                .andReturn().getResponse().getStatus();
+        assertThat(actual).isIn(401, 403);
+
+        Map<String, Object> line = requestLines(output).stream()
+                .filter(l -> cid.equals(l.get("correlationId")))
+                .findFirst().orElseThrow(() -> new AssertionError("no http_request line in:\n" + output.getOut()));
+        assertThat(line.get("http.route")).isEqualTo("/api/v1/mortgages/{id}/servicing-history");
+        assertThat(((Number) line.get("http.status")).intValue()).isEqualTo(actual);
     }
 
     /** JSON lines on stdout whose message is http_request, with nested objects flattened to dotted keys. */

@@ -15,8 +15,9 @@ spring:
     password: ${POSTGRES_PASSWORD}
     driver-class-name: org.postgresql.Driver
     hikari:
-      connection-timeout: 30000
-      validation-timeout: 5000
+      # M9 RCA 2026-11-10 (B-22): fail fast when the database is unreachable (was 30 s: every request hung, then 500).
+      connection-timeout: ${DB_CONNECTION_TIMEOUT_MS:3000}
+      validation-timeout: 1000
       minimum-idle: 2
       maximum-pool-size: 10
       idle-timeout: 600000

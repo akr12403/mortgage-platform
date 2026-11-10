@@ -117,7 +117,7 @@ def apply_monitoring(splunk: Splunk) -> None:
             "search": alert["search"],
             "description": f"{alert['description']} Runbook: {alert['runbook']}",
             "is_scheduled": "1", "cron_schedule": "* * * * *",
-            "dispatch.earliest_time": "-5m@m", "dispatch.latest_time": "@m",
+            "dispatch.earliest_time": alert.get("window", "-5m@m"), "dispatch.latest_time": "@m",
             "alert_type": "number of events", "alert_comparator": "greater than", "alert_threshold": "0",
             "alert.track": "1", "alert.severity": str(alert["severity"]), "alert.digest_mode": "1",
             "alert.suppress": "1", "alert.suppress.period": "10m", "disabled": "0",
