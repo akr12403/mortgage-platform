@@ -140,6 +140,19 @@ Both roles have an explicit **deny on business-data reads**: DynamoDB items, SQS
 | `AWS_DEPLOY_DEV_ROLE_ARN` | `github_secret_AWS_DEPLOY_DEV_ROLE_ARN` | contains the account id |
 | `TF_DEVELOPER_PRINCIPAL_ARN` | `github_secret_TF_DEVELOPER_PRINCIPAL_ARN` | Terraform must keep trusting the developer role in the app roles. Without it, a CI apply would make the CI role the trusted principal. |
 
+### Deployment record
+
+Deployments to dev on 2026-11-09, all with `scripts/deploy/deploy-dev.sh` and the developer session (sandbox: no CI access to AWS). The plans changed only the 4 task definitions (new revision) and the 4 services; nothing else.
+
+| # | What | Image | Images to ECR | Task definitions | Result |
+| --- | --- | --- | --- | --- | --- |
+| 1 | First deploy (develop after PR #109) | `sha-fe79157` | 4 pushed | `:1` → `:2` | Apply complete (4 added, 4 changed, 4 destroyed); rollout `COMPLETED`; follow-up plan exit 0 |
+| 2 | Deploy of PR #110 (newest green develop) | `sha-1f0a8ac` | 4 pushed | `:2` → `:3` | Apply complete |
+| 3 | **Rollback drill** to the previous release | `sha-fe79157` | skipped (already in ECR, immutable) | `:3` → `:4` | Apply complete: one command, no rebuild |
+| 4 | Roll forward again | `sha-1f0a8ac` | skipped | `:4` → `:5` | Apply complete |
+
+"Destroyed" in these applies is the previous task definition revision being deregistered. ECS task definitions are immutable, so every new image is a new revision. Services run 0 tasks until a database exists ([terraform.md](terraform.md#design-decisions)).
+
 ## Running stages locally
 
 ```bash
