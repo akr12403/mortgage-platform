@@ -2,7 +2,7 @@
 (M9 Tasks 9.3, 9.4). Stdlib only.
 
     python3 scripts/splunk/traffic.py                  # 3 minutes, ~2 requests/s
-    python3 scripts/splunk/traffic.py --minutes 10     # e.g. during the incident simulation (Task 9.4)
+    python3 scripts/splunk/traffic.py --minutes 15 --workers 6   # incident drill: requests may hang 30 s
 
 Each loop, as the servicing user: list a borrower's mortgages, read one, post a 1.00 payment (unique Idempotency-Key), read its
 servicing history; as admin: analytics event stats. Every request gets its own X-Correlation-ID. Payments go to the
@@ -14,6 +14,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -61,43 +63,72 @@ def login(user: str, password: str) -> str:
     return body["accessToken"]
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--minutes", type=float, default=3)
-    parser.add_argument("--rate", type=float, default=2.0, help="requests per second (approximate)")
-    args = parser.parse_args()
+def worker(n: int, deadline: float, rate: float, servicing: str, admin: str, stats: Counter,
+           lock: threading.Lock) -> None:
+    i = n  # workers start at different steps, so they don't all hit the same endpoint at once
+    while time.time() < deadline:
+        mortgage = MORTGAGES[i % len(MORTGAGES)]
+        step = i % 5
+        payment_status = None
+        if step == 0:
+            status, _ = call("GET", f"{MS}/api/v1/mortgages?borrowerId=BOR-001&page=0&size=5", servicing)
+        elif step == 1:
+            status, _ = call("GET", f"{MS}/api/v1/mortgages/{mortgage}", servicing)
+        elif step == 2:
+            payment = {"dueDate": str(date.today() - timedelta(days=1)), "paidDate": str(date.today()),
+                       "amount": 1.00, "status": "POSTED"}
+            status, _ = call("POST", f"{MS}/api/v1/mortgages/{mortgage}/payments", servicing, payment,
+                             {"Idempotency-Key": f"traffic-{uuid.uuid4()}"})
+            payment_status = status
+        elif step == 3:
+            status, _ = call("GET", f"{SS}/api/v1/mortgages/{mortgage}/servicing-history", servicing)
+        else:
+            status, _ = call("GET", f"{AS}/api/v1/analytics/event-stats", admin)
+        with lock:
+            stats["5xx" if status >= 500 else "no response" if status == 0 else f"{status // 100}xx"] += 1
+            stats["requests"] += 1
+            if payment_status is not None:
+                stats[f"payment {payment_status or 'no response'}"] += 1
+        i += 1
+        time.sleep(1 / rate)
+
+
+def run(minutes: float, rate: float = 2.0, workers: int = 1, out=None) -> dict:
+    """Send traffic for `minutes`; progress every 30 s to `out` (default stdout). Returns the final counts.
+    Also used in-process by scripts/incident/db_outage_drill.py."""
+    out = out or sys.stdout
     password = seed_password()
     servicing, admin = login("servicing@capstone.local", password), login("admin@capstone.local", password)
     stats: Counter = Counter()
-    deadline, i, last_report = time.time() + args.minutes * 60, 0, time.time()
-    print(f"Sending traffic for {args.minutes:g} min at ~{args.rate:g} req/s (Ctrl-C to stop)")
+    lock = threading.Lock()
+    deadline = time.time() + minutes * 60
+    print(f"Sending traffic for {minutes:g} min: {workers} worker(s) at ~{rate:g} req/s each (Ctrl-C to stop)",
+          file=out, flush=True)
+    threads = [threading.Thread(target=worker, args=(n, deadline, rate, servicing, admin, stats, lock), daemon=True)
+               for n in range(workers)]
+    for t in threads:
+        t.start()
     try:
-        while time.time() < deadline:
-            mortgage = MORTGAGES[i % len(MORTGAGES)]
-            step = i % 5
-            if step == 0:
-                status, _ = call("GET", f"{MS}/api/v1/mortgages?borrowerId=BOR-001&page=0&size=5", servicing)
-            elif step == 1:
-                status, _ = call("GET", f"{MS}/api/v1/mortgages/{mortgage}", servicing)
-            elif step == 2:
-                payment = {"dueDate": str(date.today() - timedelta(days=1)), "paidDate": str(date.today()),
-                           "amount": 1.00, "status": "POSTED"}
-                status, _ = call("POST", f"{MS}/api/v1/mortgages/{mortgage}/payments", servicing, payment,
-                                 {"Idempotency-Key": f"traffic-{uuid.uuid4()}"})
-                stats[f"payment {status}"] += 1
-            elif step == 3:
-                status, _ = call("GET", f"{SS}/api/v1/mortgages/{mortgage}/servicing-history", servicing)
-            else:
-                status, _ = call("GET", f"{AS}/api/v1/analytics/event-stats", admin)
-            stats["5xx" if status >= 500 else "no response" if status == 0 else f"{status // 100}xx"] += 1
-            i += 1
-            if time.time() - last_report >= 30:
-                print(f"  {i} requests: {dict(sorted(stats.items()))}")
-                last_report = time.time()
-            time.sleep(1 / args.rate)
+        while any(t.is_alive() for t in threads):
+            time.sleep(30)
+            with lock:
+                print(f"  {time.strftime('%H:%M:%S')} {dict(sorted(stats.items()))}", file=out, flush=True)
     except KeyboardInterrupt:
         pass
-    print(f"Done: {i} requests: {dict(sorted(stats.items()))}")
+    with lock:
+        final = dict(sorted(stats.items()))
+    print(f"Done: {final}", file=out, flush=True)
+    return final
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--minutes", type=float, default=3)
+    parser.add_argument("--rate", type=float, default=2.0, help="requests per second per worker (approximate)")
+    parser.add_argument("--workers", type=int, default=1,
+                        help="parallel clients; use several when requests may hang (incident drill)")
+    args = parser.parse_args()
+    run(args.minutes, args.rate, args.workers)
 
 
 if __name__ == "__main__":
