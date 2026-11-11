@@ -164,6 +164,24 @@ Pick the row that matches what went wrong:
 | `Error acquiring the state lock` | Another plan or apply holds the lock, or a run was cancelled mid-apply | Wait and re-run (jobs wait 120 s). If no run is active: `bash scripts/terraform/tf.sh dev force-unlock <lock id>` (the id is in the error) |
 | An image is missing in GHCR | That commit never passed `publish` | Deploy only tags from green `ci` runs |
 
+## Common failures (L1 triage)
+
+Symptoms seen on the local stack or reported by users, the likely cause, and the first fix. Every error response carries a `correlationId`: search it in Splunk first (`index=mortgage_dev correlationId="<id>"`). Known limitations are in [known-issues.md](known-issues.md).
+
+| Symptom | Likely cause | First fix |
+| --- | --- | --- |
+| `docker compose up` stops with `Set POSTGRES_PASSWORD in .env` (or `JWT_SECRET`) | `.env` missing or incomplete | `cp .env.example .env` and fill in the secrets ([Secrets rotation](#secrets-rotation)); never commit it |
+| Login returns 401 `INVALID_CREDENTIALS` for a seed user | Wrong `AUTH_SEED_PASSWORD`, or the database was created with another one | Check `.env`. mortgage-service creates each seed user once, with the `.env` password of that first start; changing `.env` later doesn't change existing users |
+| 429 `RATE_LIMITED` with `Retry-After` | Per-user limits: 10 logins or 60 writes a minute (per container) | Wait the `Retry-After` seconds; scripts should spread users. Shown on the *Throttled requests* panel |
+| 401 `INVALID_TOKEN` after about an hour | Token expired (1 h) or `JWT_SECRET` rotated | Log in again |
+| 403 `ACCESS_DENIED` | The role isn't allowed on that route (by design) | Check the matrix in [security-controls.md](../security/security-controls.md#rbac-matrix); use a user with the right role |
+| 503 `SERVICE_UNAVAILABLE` from mortgage- or servicing-service | Database unreachable (alert *Database unreachable*) | [Alert: database unreachable](#alert-database-unreachable) |
+| Payment accepted but missing from the servicing history or analytics after a minute | Consumer down, LocalStack restarted, or the message went to a DLQ | `docker compose ps`; check the DLQs and redrive ([messaging-runbook.md](messaging-runbook.md)) |
+| Assistant returns 503 `AI_PROVIDER_NOT_CONFIGURED` or `KNOWLEDGE_STORE_UNAVAILABLE`; `/health/ready` is DOWN | No `LLM_API_KEY`, or the knowledge base isn't ingested | Add the key to `.env` and `docker compose up -d knowledge-assistant`; `docker compose run --rm knowledge-ingest` |
+| Assistant answers "insufficient context" | The question isn't covered by the approved knowledge base (by design) | Rephrase with policy terms, or ask the policy owner; don't work around it |
+| No new events in Splunk | Log shipping or Splunk stopped | `bash scripts/splunk/local-up.sh` (reuses what's running); see [observability.md](observability.md) troubleshooting |
+| A service restarts in a loop (`docker compose ps` shows `Restarting`) | Bad configuration or a failed migration | `docker compose logs <service> --tail 100`; for migrations `docker compose logs db-migrate` |
+
 ## Alerts
 
 These alerts come from Splunk, defined in [`monitoring/splunk/alerts.json`](../../monitoring/splunk/alerts.json), and the thresholds are explained in [slo.md](./slo.md). Each one starts the same way:
