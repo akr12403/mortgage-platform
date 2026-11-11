@@ -1,0 +1,40 @@
+# ---------- Build stage: compilers + headers live here only ----------
+FROM python:3.14.7-slim AS builder
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN python -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+COPY analytics/mortgage-analytics-service/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
+# ---------- Test stage (optional): docker build --target test ... ----------
+FROM builder AS test
+COPY analytics/mortgage-analytics-service/requirements-dev.txt /tmp/requirements-dev.txt
+RUN cd /tmp && pip install --no-cache-dir -r requirements-dev.txt
+WORKDIR /app
+COPY analytics/mortgage-analytics-service/ ./
+CMD ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests"]
+
+# ---------- Runtime stage (default): venv + source only, non-root ----------
+FROM python:3.14.7-slim AS runtime
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libpq5 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system app && useradd --system --gid app --no-create-home app
+COPY --from=builder /opt/venv /opt/venv
+# The runtime never installs packages: remove pip (system + venv) and the CA bundle it vendors, which is pinned to
+# pip's release and goes stale (GHSA-6q48-6c7w-9gw2 in pip's own certifi). The app uses the venv's certifi.
+RUN /opt/venv/bin/python -m pip uninstall -y -q pip && /usr/local/bin/python -m pip uninstall -y -q pip
+ENV PATH=/opt/venv/bin:$PATH \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+WORKDIR /app
+COPY analytics/mortgage-analytics-service/src/ ./src/
+# Read-only for the app user whatever the host file modes were (a 0600 checkout would otherwise be unreadable).
+RUN chmod -R a+rX,go-w /app
+USER app
+EXPOSE 8000
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
+    CMD python -c "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)"
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

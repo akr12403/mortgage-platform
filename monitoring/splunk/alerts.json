@@ -1,0 +1,42 @@
+{
+  "_comment": "M9 Task 9.3 alerts as code: applied by scripts/splunk/apply.py (Splunk REST saved/searches). Each runs every minute over the last complete minutes of its window (default 5; 'window' overrides), is tracked in Activity > Triggered Alerts, and is suppressed for 10 minutes after firing. Payment searches leave out 429 (client throttling, not a service failure). Thresholds and SLO reasoning: docs/operations/slo.md. What to do: the runbook link in each description.",
+  "alerts": [
+    {
+      "name": "mortgage_dev - Payment API failing now (fast burn)",
+      "severity": 6,
+      "window": "-1m@m",
+      "runbook": "docs/operations/runbook.md#alert-payment-api-failing-now",
+      "search": "index=mortgage_dev message=http_request service.name=mortgage-service http.method=POST http.route=\"/api/v1/mortgages/{id}/payments\" http.status!=429 | eval bad=if('http.status'>=500,1,0) | stats count as total, sum(bad) as errors | eval error_rate=round(errors/total*100,2) | where total>=3 AND error_rate>=50",
+      "description": "Payments are failing right now: at least half of the payment requests in the last complete minute returned 5xx (RCA 2026-11-10: the 5-minute alerts took 3 minutes to fire during a full outage)."
+    },
+    {
+      "name": "mortgage_dev - Payment API 5xx rate above 5%",
+      "severity": 5,
+      "runbook": "docs/operations/runbook.md#alert-payment-api-5xx-rate",
+      "search": "index=mortgage_dev message=http_request service.name=mortgage-service http.method=POST http.route=\"/api/v1/mortgages/{id}/payments\" http.status!=429 | eval bad=if('http.status'>=500,1,0) | stats count as total, sum(bad) as errors | eval error_rate=round(errors/total*100,2) | where total>=5 AND error_rate>5",
+      "description": "Payments are failing: more than 5% of POST /payments returned 5xx in 5 minutes (10x the 0.5% error budget of the 99.5% SLO)."
+    },
+    {
+      "name": "mortgage_dev - Payment API p95 latency above 500 ms",
+      "severity": 4,
+      "runbook": "docs/operations/runbook.md#alert-payment-api-latency",
+      "search": "index=mortgage_dev message=http_request service.name=mortgage-service http.method=POST http.route=\"/api/v1/mortgages/{id}/payments\" http.status!=429 | stats count as total, perc95(durationMs) as p95 | eval p95=round(p95,1) | where total>=5 AND p95>500",
+      "description": "Payments are slow: p95 of POST /payments above 500 ms over 5 minutes (latency SLO)."
+    },
+    {
+      "name": "mortgage_dev - Error spike in a service",
+      "severity": 4,
+      "runbook": "docs/operations/runbook.md#alert-service-error-spike",
+      "search": "index=mortgage_dev log.level=ERROR | stats count as errors, dc(correlationId) as requests, latest(message) as last_error by service.name | where errors>=10",
+      "description": "A service logged 10 or more ERROR lines in 5 minutes (database or broker down, bad deployment, poison message)."
+    },
+    {
+      "name": "mortgage_dev - Database unreachable",
+      "severity": 6,
+      "window": "-1m@m",
+      "runbook": "docs/operations/runbook.md#alert-database-unreachable",
+      "search": "index=mortgage_dev log.level=ERROR (\"Database unavailable\" OR \"Connection is not available\") | stats count as errors, latest(message) as last_error by service.name | where errors>=1",
+      "description": "A service cannot get a database connection (pool timeout or connection refused): every request that needs the database is failing with 503."
+    }
+  ]
+}

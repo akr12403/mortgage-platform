@@ -1,0 +1,343 @@
+# Mortgage Intelligence & Servicing Platform
+
+The Enterprise Mortgage Platform is an event-driven, microservices-based system designed to streamline the entire mortgage loan lifecycle—from initial borrower application and automated underwriting to servicing, payment processing, delinquency workflows, portfolio risk analytics, and AI-assisted document intelligence. Engineered with security, auditability, and scalability at its core, the platform integrates Java/Spring microservices, Python data analytics, event streaming, and cloud-native infrastructure.
+
+---
+
+## Master Progress Tracker
+
+| ID | Milestone | Week | Doc | Status |
+| --- | --- | --- | --- | --- |
+| **M1** | Foundation & Architecture | 1 | `docs/milestones/m01.md` | **Completed** |
+| **M2** | Agile & Data Foundation | 2 | `docs/milestones/m02.md` | **Completed** |
+| **M3** | Python Analytics | 3 | `docs/milestones/m03.md` | **Completed** |
+| **M4** | Java / Spring Backend | 4–5 | `docs/milestones/m04.md` | **Completed** |
+| **M5** | Microservices & Events | 6 | `docs/milestones/m05.md` | **Completed** |
+| **M6** | Security Engineering | 7–8 | `docs/milestones/m06.md` | **Completed** |
+| **M7** | AI / RAG Assistant | 9 | `docs/milestones/m07.md` | **Completed** |
+| **M8** | AWS & Data Platform | 10 | `docs/milestones/m08.md` | **Completed** |
+| **M9** | CI/CD, Terraform, Observability | 11 | `docs/milestones/m09.md` | **Completed** |
+| **M10** | Testing & Production Readiness | 12 | `docs/milestones/m10.md` | **Completed** |
+
+---
+
+## Milestone 1 Artifacts & Index
+
+All foundational requirements and baseline architecture documentation created during Milestone 1 are linked below for rapid review:
+
+### Requirements & Scope
+- **Project Charter**: [docs/requirements/team-charter.md](docs/requirements/team-charter.md)
+- **Project Scope**: [docs/requirements/project-scope.md](docs/requirements/project-scope.md)
+- **Stakeholder Map**: [docs/requirements/stakeholder-map.md](docs/requirements/stakeholder-map.md)
+- **User Personas**: [docs/requirements/personas.md](docs/requirements/personas.md)
+- **Business Flow (Mortgage Lifecycle)**: [docs/requirements/business-flow.md](docs/requirements/business-flow.md)
+- **Backlog & Epics**: [docs/requirements/backlog-epics.md](docs/requirements/backlog-epics.md)
+- **Engineering Standards**: [docs/requirements/engineering-standards.md](docs/requirements/engineering-standards.md)
+
+### Baseline Architecture & Topology
+- **System Context (C4 Level 1)**: [docs/architecture/system-context.md](docs/architecture/system-context.md)
+- **Application Architecture**: [docs/architecture/application-architecture.md](docs/architecture/application-architecture.md)
+- **Deployment Architecture & Topology**: [docs/architecture/deployment-architecture.md](docs/architecture/deployment-architecture.md)
+- **Data Flow (Document Upload Trace)**: [docs/architecture/data-flow.md](docs/architecture/data-flow.md)
+- **Trust Boundaries & Security Controls**: [docs/architecture/trust-boundaries.md](docs/architecture/trust-boundaries.md)
+
+---
+
+## 🚀 Milestone 2 Status: COMPLETED
+Milestone 2 establishes the core database foundation, synthetic data seeding, operational query workflows, and DevSecOps baseline guardrails.
+
+### Summary of Completed Components
+- **Database Architecture & Migrations (`/database`)**: 
+  - Full relational schema covering 7 core entities (Borrowers, Mortgages, Loans, Payments, Delinquencies, Servicing History, and Document Metadata) utilizing PostgreSQL and `pgcrypto`.
+  - Automated local development reset and seed utility (`reset-dev-db.ps1`).
+- **Synthetic Data & Seeding (`database/seed/`)**: 
+  - Faker-compliant synthetic datasets containing representative borrower profiles, active loans, and delinquency cases (`MTG-1001`, `MTG-1002`, `MTG-1005`).
+- **Operational Queries & Lab Artifacts (`database/scripts/`)**: 
+  - Borrower-to-loan joins, outstanding balance aggregations, and delinquency reporting views.
+  - Performance documentation (`docs/architecture/query-notes.md`) featuring index optimization on `servicing_history(event_time)` to eliminate sequential scan overhead.
+- **DevSecOps Baseline (`docs/operations/devsecops-baseline.md`)**: 
+  - GitHub branch protection rules enforced on `main` and `develop` (requiring pull requests, approvals, and status checks).
+  - Minimum CI pipeline stub (`.gitlab-ci.yml`) for validation and secret scanning hooks.
+  - Standardized code review checklists and PR templates.
+
+---
+
+## 🚀 Milestone 3 Status: COMPLETED
+Milestone 3 implements the Python-based data analytics and portfolio processing pipelines for aggregation, compliance reporting, and automation support.
+
+### Summary of Completed Components
+- **Data Processing & Analytics Scripts**: 
+  - Python scripts utilizing optimized data structures (`defaultdict`, pandas) to parse campaign data, aggregate metrics, and compute access review durations.
+- **Financial & Portfolio Simulation Tools**: 
+  - Automated data utilities for processing loan metrics, validation datasets, and analytics support across backend services.
+
+---
+
+## 🚀 Milestone 4 Status: COMPLETED
+Milestone 4 delivers the core Java / Spring Boot microservices backend (`mortgage-service` and `servicing-service`), full REST API implementation, JPA persistence, transaction management, structured logging, and automated test coverage.
+
+### Summary of Completed Components
+- **Microservices Architecture (`mortgage-service` & `servicing-service`)**: 
+  - Multi-service Spring Boot application topology running locally on ports `8080` and `8081`.
+- **Domain Model & JPA Entities**: 
+  - Fully implemented relational JPA entities (`Borrower`, `Mortgage`, `Payment`, `ServicingHistory`) with constraint validation (`@Valid`, `@NotNull`, `@NotBlank`, `@DecimalMin`).
+- **RESTful Endpoints & Business Logic**: 
+  - Borrower registration (`/api/v1/borrowers`), mortgage creation and pagination (`/api/v1/mortgages`), atomic payment processing with automatic balance updates (`/api/v1/mortgages/{id}/payments`), servicing history tracking, and risk/delinquency evaluation (`/api/v1/mortgages/{id}/delinquency`).
+- **Observability & Traceability**: 
+  - Structured request logging with custom correlation ID (`X-Correlation-Id`) tracking across system components.
+  - Actuator health and readiness endpoint configuration.
+- **Automated Testing & Quality Assurance**: 
+  - Comprehensive unit and integration test suites (`mvn test`) passing successfully across controllers, services, and database layers.
+
+---
+
+## 🚀 Milestone 5 Status: COMPLETED — MICROSERVICES, EVENTS & CONTAINERS
+
+M5 turns the repo into a documented, event-driven microservice architecture: contract-first APIs, lifecycle events over **SNS → SQS → consumers** with retries and DLQs, and three containerized services with health checks.
+
+| Area | Where |
+| --- | --- |
+| Architecture overview (start here) | [docs/architecture/microservice-architecture.md](docs/architecture/microservice-architecture.md) |
+| Boundaries, ownership, ADR | [application-architecture.md](docs/architecture/application-architecture.md), [service-ownership-matrix.md](docs/architecture/service-ownership-matrix.md), [ADR-002](docs/adr/ADR-002-microservices-decomposition.md) |
+| API contracts (v1) | [mortgage-service](docs/api/mortgage-service-openapi.yaml), [servicing-service](docs/api/servicing-service-openapi.yaml), [analytics](docs/api/mortgage-analytics-service-openapi.yaml), [Postman](docs/api/postman/mortgage-platform-m5.postman_collection.json) |
+| Events | [event-catalog.md](docs/architecture/event-catalog.md), JSON Schemas in [docs/architecture/events/](docs/architecture/events/) |
+| Messaging operations | [messaging-runbook.md](docs/operations/messaging-runbook.md) |
+| Demo & sign-off | [m5-demo-checklist.md](docs/operations/m5-demo-checklist.md), `bash scripts/m5-demo.sh` |
+
+### Verification evidence (local Docker stack, 2026-10-20)
+
+| Check | Result |
+| --- | --- |
+| `mortgage-service` tests (`mvn -B test`) | 41 passed, 0 skipped (includes `EventSchemaContractTest`) |
+| `servicing-service` tests (`mvn -B test`) | 13 passed |
+| Repository contract checks (`tests/contract`) | 20 passed: schemas ↔ examples ↔ catalog ↔ Java producer payloads ↔ OpenAPI |
+| `docker compose up --build -d` | postgres, localstack, mortgage-service, servicing-service, analytics-service **healthy** (Dockerfile `HEALTHCHECK`); `db-migrate`, `messaging-init` exited 0 |
+| `bash scripts/m5-demo.sh` | `MortgageCreated` → `LoanApproved` → `PaymentReceived` (idempotent replay, no duplicate) → `PaymentMissed` + `LoanDelinquent` consumed into servicing history and delinquency snapshot; one correlation ID traced HTTP → producer logs → consumer logs; poison event retried 3× (ERROR logged) then moved to `capstone-mortgage-servicing-dlq-dev` at ~90 s |
+| Error envelope | unknown mortgage → 404 `MORTGAGE_NOT_FOUND` with `correlationId` + `timestamp` |
+
+All M5 Definition of Done items and their evidence: [docs/operations/m5-demo-checklist.md](docs/operations/m5-demo-checklist.md).
+
+### Run the stack
+
+```bash
+cp .env.example .env            # REQUIRED since M6: set JWT_SECRET (openssl rand -base64 48) and AUTH_SEED_PASSWORD
+docker compose up --build -d
+docker compose ps               # postgres, localstack, mortgage-service, servicing-service, analytics-service, knowledge-assistant -> healthy
+curl localhost:8080/actuator/health; curl localhost:8081/actuator/health; curl localhost:8000/health
+bash scripts/m5-demo.sh         # end-to-end demo incl. DLQ (logs in with AUTH_SEED_PASSWORD from .env)
+docker compose run --rm knowledge-ingest   # M7: load the knowledge base into pgvector (needs LLM_API_KEY in .env)
+curl localhost:8001/health/ready           # M7: knowledgeChunks 51, aiProviderConfigured true
+bash scripts/m7-demo.sh                    # M7: grounded Q&A, insufficient context, prompt library, incident summary
+```
+
+Do **not** use `docker compose down -v` unless you intend to wipe the database volume (it re-seeds on next start).
+
+> ⚠️ **Local plain HTTP only.** The compose stack serves HTTP on `localhost` (8080, 8081, 8000, 8001) with **synthetic data**, for local development only. Any shared or deployed environment must use **HTTPS**: TLS terminates at the load balancer and is re-encrypted to the services ([encryption in transit](docs/security/security-controls.md#in-transit)). Never point a local stack at real borrower data. The TypeScript client refuses plain HTTP to any non-local host.
+
+### Testing
+
+```bash
+# Java (mount the repo root so the event-schema contract test can read docs/)
+for s in mortgage-service servicing-service; do
+  docker run --rm -v "$PWD":/workspace -v "$HOME/.m2":/root/.m2 -w /workspace/services/$s \
+    maven:3.9-eclipse-temurin-17 mvn -B test
+done
+
+# Python analytics (dedicated test stage; runtime image carries no test tooling)
+docker build -f docker/Dockerfile.analytics-service --target test -t capstone/analytics-tests .
+docker run --rm capstone/analytics-tests
+
+# M6 auth + RBAC + OWASP smoke tests against the running stack (stdlib only)
+python3 tests/security/test_auth_smoke.py
+python3 tests/security/test_rbac_smoke.py
+python3 tests/security/test_owasp_smoke.py
+
+# M6 static check: no string-built SQL anywhere (no stack needed)
+python3 tests/security/test_static_sql.py
+
+# M6 CI security gates (same as GitHub Actions / GitLab): secrets, SAST, dependency scanning. Needs Docker.
+sh scripts/security-gates.sh all
+
+# M6 TypeScript secure API consumer (Node 22+; see clients/mortgage-api-consumer/README.md for the Docker variant)
+(cd clients/mortgage-api-consumer && npm install && npm test && \
+  MORTGAGE_API_PASSWORD="$(grep '^AUTH_SEED_PASSWORD=' ../../.env | cut -d= -f2-)" npm run demo)
+
+# M7 knowledge assistant (fake embedder + scripted LLM: no API key, network or database needed)
+docker build -f docker/Dockerfile.knowledge-assistant --target test -t ka-test . && docker run --rm ka-test
+docker run --rm -v "$PWD":/repo -w /repo/ai/mortgage-knowledge-assistant ka-test \
+  python -m pytest -q -p no:cacheprovider tests/test_prompt_library.py tests/test_incident.py   # docs/runbook link checks
+
+# Repository contract checks (schemas <-> examples <-> catalog <-> Java producer records)
+docker run --rm -v "$PWD":/w -w /w python:3.14.7-slim sh -c "pip install -q pytest jsonschema && python -m pytest -q tests/contract"
+```
+
+---
+
+## 🚀 Milestone 6 Status: COMPLETED — SECURITY ENGINEERING
+
+M6 secures the platform end to end:
+
+- **authentication:** JWT login;
+- **authorization:** RBAC for five roles, with server-side enforcement and deny by default;
+- **OWASP API Top 10 hardening;**
+- **a secure TypeScript API consumer;**
+- **data protection:** classification, encryption and secrets rotation;
+- **security testing artifacts;**
+- **blocking CI security gates.**
+
+| Area | Where |
+| --- | --- |
+| Authentication (6.1) | [docs/security/authentication.md](docs/security/authentication.md) |
+| RBAC matrix (6.2), OWASP controls (6.3), data classification + encryption (6.5) | [docs/security/security-controls.md](docs/security/security-controls.md) |
+| TypeScript secure API consumer (6.4) | [clients/mortgage-api-consumer/](clients/mortgage-api-consumer/README.md) |
+| Secrets rotation runbook (6.5) | [docs/operations/runbook.md](docs/operations/runbook.md#secrets-rotation) |
+| STRIDE threat model, risk register, vulnerability report, remediation backlog (6.6) | [threat-model.md](docs/security/threat-model.md), [risk-register.md](docs/security/risk-register.md), [vulnerability-report.md](docs/security/vulnerability-report.md), [remediation-backlog.md](docs/security/remediation-backlog.md) |
+| Secure CI gates (6.7) | [docs/operations/devsecops-baseline.md](docs/operations/devsecops-baseline.md), `scripts/security-gates.sh`, `.github/workflows/ci.yml`, `.gitlab-ci.yml` |
+| Demo & sign-off (validation + Definition of Done → evidence) | [docs/operations/m6-demo-checklist.md](docs/operations/m6-demo-checklist.md), `bash scripts/m6-demo.sh` |
+
+### Verification evidence (2026-10-24)
+
+| Check | Result |
+| --- | --- |
+| `mortgage-service` / `servicing-service` tests | **131 / 37 passed** (Spring Boot 3.5.16 with patched Tomcat, Netty, Jackson and pgjdbc) |
+| Analytics tests | **82 passed** |
+| TypeScript client tests + demo against the live stack | **16/16**; login → GET mortgage → GET servicing history → 401 → re-login + retry → 403 surfaced |
+| Live smoke tests (auth / RBAC / OWASP) | **7/7 · 4/4 · 8/8** |
+| Security gates (`sh scripts/security-gates.sh all`, and GitHub Actions on PR #90) | secrets: no leaks in history; SAST: 0 findings; dependencies: 0 High/Critical; Python: no known vulnerabilities |
+| Intentional test secret (PR #91) | `secret-detection` **failed after 8 s**; PR closed without merging ([evidence](docs/operations/devsecops-baseline.md#pipeline-evidence-redacted-screenshot)) |
+| Vulnerabilities | 19 findings: **0 Critical/High open**; 2 Low open and 4 accepted with owner and expiry ([report](docs/security/vulnerability-report.md)) |
+| SUPPORT cannot approve a loan (M10 Journey 4) | 403 `ACCESS_DENIED` (`RbacMatrixTest`, `test_rbac_smoke.py`) |
+
+**Known limits (stated, not hidden):**
+
+- GitHub branch protection is configured but **not enforced** on this free private repository. The gates still run and fail visibly, and enforcement needs an organization plan (M9).
+- Two Spring Framework 6.2 CVEs with no open-source fix on the 3.5 line are **accepted until 2026-12-31** (unreachable, vendor-rated Medium/Low). The Spring Boot 4 migration is planned for M9 (B-18).
+- The peer and instructor review boxes in the threat model and risk register are completed at the M6 review session.
+
+---
+
+## 🚀 Milestone 7 Status: COMPLETED — AI/RAG MORTGAGE ASSISTANT
+
+M7 adds a **mortgage knowledge assistant** (`ai/mortgage-knowledge-assistant/`, port 8001) that answers staff policy questions only from a controlled, versioned knowledge base, with citations:
+
+- **RAG pipeline:** 5 synthetic policy documents → section-aware chunks (≤ 512 tokens) → `text-embedding-3-small` → **pgvector** → top-5 retrieval with a calibrated similarity gate → `gpt-6-luna` with a context-only prompt and strict JSON → citations verified in code;
+- **insufficient context** instead of guessing (the LLM is not called for off-corpus questions);
+- **API:** `POST /api/v1/assistant/ask` behind the M6 JWT, rate limited, correlation IDs, audit log without question text;
+- **prompt library** (6 versioned templates) and **AI governance** (human-approval scenarios, logging and PII rules, tested hallucination controls);
+- **incident summarization** (Session 27) with runbook links from a fixed catalogue and a code-decided `requiresHumanApproval` flag.
+
+| Area | Where |
+| --- | --- |
+| Knowledge base v1 (7.1) | [ai/mortgage-knowledge-assistant/knowledge/](ai/mortgage-knowledge-assistant/knowledge/README.md) |
+| Ingestion, retrieval, generation, API, incidents (7.2–7.4, 7.6) | [service README](ai/mortgage-knowledge-assistant/README.md), [OpenAPI](docs/api/mortgage-knowledge-assistant-openapi.yaml), migration `database/migrations/005_knowledge_chunk.sql` |
+| Prompt library and governance (7.5) | [docs/ai/prompt-library.md](docs/ai/prompt-library.md), [docs/ai/governance.md](docs/ai/governance.md) |
+| Security review of the assistant | threats T-26–T-32 in [threat-model.md](docs/security/threat-model.md), risks R-18–R-20 in [risk-register.md](docs/security/risk-register.md), RBAC and rate limits in [security-controls.md](docs/security/security-controls.md) |
+| Demo & sign-off (validation + Definition of Done → evidence) | [docs/operations/m7-demo-checklist.md](docs/operations/m7-demo-checklist.md), `bash scripts/m7-demo.sh` |
+
+### Verification evidence (2026-10-24/25)
+
+| Check | Result |
+| --- | --- |
+| Assistant tests (Docker test image) | **172 passed**, plus the 4 docs/runbook-link checks passing with the repo mounted |
+| Ingestion | 5 documents → **51 chunks** (largest 301 tokens); re-run embeds 0 |
+| Threshold calibration | hit@5 **11/11**; on-corpus best 0.528–0.768 vs off-corpus 0.065–0.374 → threshold **0.45** (handbook 0.7 answered only 3/11) |
+| Grounded answer over HTTP | "What is the delinquency contact timeline?" → cites `delinquency-playbook:v1:c-05`, confidence 0.76 |
+| Insufficient context | "What is the capital of France?" → best 0.073, no citation, LLM not called |
+| Human approval | "Should we start foreclosure on MTG-1002…?" → answered with citation, `requiresHumanApproval: true` |
+| Incident summaries | `INC-2026-0042` → SEV2, cause found, `messaging-dlq`, confidence 0.98, no flag · `INC-2026-0043` → UNKNOWN, 0.25–0.30, **flagged** |
+| Security gates on every M7 PR (#94–#99) | secrets: no leaks; SAST: 0 findings; dependencies: no known vulnerabilities |
+
+**Known limits (stated, not hidden):**
+
+- The handbook's `gpt-4o-mini` is deprecated (shutdown 2027-01-14); the assistant uses `gpt-6-luna`, set by `LLM_MODEL`.
+- Approval rules are keyword-based, and pattern redaction cannot detect names or addresses; both are recorded as residual risks R-18 and R-19.
+- Rate limits are in-memory per container, as for the other services (shared throttling in M9).
+- The peer or instructor review box in the M7 checklist is completed at the M7 review session.
+
+---
+
+## 🚀 Milestone 8 Status: COMPLETED — AWS & DATA PLATFORM
+
+M8 runs the platform's cloud pieces in an **AWS sandbox**: a Free-plan project in `us-east-2`, so it cannot be charged. Everything is created by idempotent scripts in `scripts/aws/` from the definitions in `infrastructure/`, with **no access keys anywhere**: developers use `aws login`, and workloads use role credentials.
+
+- **IAM least privilege (8.1):** 5 workload roles with one inline policy each on exact ARNs, a CI policy guard, IAM Access Analyzer validation, and 39 policy-simulator cases. It includes the over-permissioned policy exercise.
+- **S3 (8.2):** documents and data-lake buckets with Block Public Access, SSE-S3, a TLS-only policy and a dev lifecycle rule. The analytics upload path runs on 1-hour role credentials.
+- **Lambda (8.3):** S3 upload → type validation → DynamoDB metadata → JSON log line that carries the upload's correlation ID; error alarm stub.
+- **Messaging + DynamoDB (8.4):** [ADR-003](docs/adr/ADR-003-sqs-only-messaging-no-kinesis.md) (SNS → SQS only, no Kinesis), and a `CapstoneMortgageLookup-dev` lookup with a partition-key design, bulk load, a read API and conditional event-driven updates.
+- **Pipeline (8.5):** PostgreSQL export → S3 raw → **Glue** (schema-checked) → S3 curated → analytics report API, with a runbook.
+- **Reconciliation + schema drift (8.6):** 8 checks (rows 0 difference, balance ±0.01, …) and a fail-with-alert drift policy with an opt-in `evolve` mode.
+
+| Area | Where |
+| --- | --- |
+| Definitions and scripts | [infrastructure/aws/](infrastructure/aws/README.md), [infrastructure/glue/](infrastructure/glue/README.md), `scripts/aws/` |
+| IAM (8.1) | [docs/architecture/aws-iam-matrix.md](docs/architecture/aws-iam-matrix.md) |
+| S3 and the upload path (8.2) | [docs/architecture/aws-s3-document-storage.md](docs/architecture/aws-s3-document-storage.md) |
+| Lambda (8.3) | [docs/architecture/aws-document-lambda.md](docs/architecture/aws-document-lambda.md) |
+| Messaging and DynamoDB (8.4) | [ADR-003](docs/adr/ADR-003-sqs-only-messaging-no-kinesis.md), [docs/architecture/aws-dynamodb-mortgage-lookup.md](docs/architecture/aws-dynamodb-mortgage-lookup.md) |
+| Pipeline, reconciliation, drift (8.5–8.6) | [docs/operations/data-pipeline-runbook.md](docs/operations/data-pipeline-runbook.md) |
+| Compute choices (Lambda / ECS / EKS, Glue / EMR) | [docs/architecture/aws-compute-awareness.md](docs/architecture/aws-compute-awareness.md) |
+| Security review | threats T-33–T-40 in [threat-model.md](docs/security/threat-model.md), risks R-21–R-24 (and R-08 lowered) in [risk-register.md](docs/security/risk-register.md) |
+| Demo & sign-off (validation + Definition of Done → evidence) | [docs/operations/m8-demo-checklist.md](docs/operations/m8-demo-checklist.md), `bash scripts/m8-demo.sh` |
+
+```bash
+aws login --profile capstone-dev --region us-east-2
+bash scripts/aws/iam-apply.sh && bash scripts/aws/s3-apply.sh && bash scripts/aws/lambda-deploy.sh
+bash scripts/aws/lookup-deploy.sh && bash scripts/aws/lookup-load.sh && bash scripts/aws/pipeline-deploy.sh
+PAUSE=1 bash scripts/m8-demo.sh        # the 5-step milestone demo
+bash scripts/aws/teardown.sh           # remove everything M8 created
+```
+
+### Verification evidence (2026-11-02 to 2026-11-04)
+
+| Check | Result |
+| --- | --- |
+| IAM policy simulator | **39/39** cases match (needed actions allowed, everything around them denied) |
+| S3 controls | **22/22**: 14 configuration + 8 live (upload encrypted; read-back, delete, outside prefix, plain HTTP and anonymous GET all denied) |
+| Document Lambda | real PDF `VALIDATED`, fake PDF `REJECTED [MAGIC_BYTES_MISMATCH]`; the API upload's correlation ID appears in the Lambda log line |
+| DynamoDB lookup | 18/18 items loaded; MTG-1002 279,000.00 → **277,150.00** about 1 s after a payment event |
+| Pipeline | 18 PostgreSQL rows → 18 curated rows, 5,169,399.96 both sides; Glue run 12 s; idempotent re-runs |
+| Reconciliation | **PASS** (8 checks), WARN `DQ_SEVERITY_BAND` for MTG-1005 (source data, B-19) |
+| Schema drift | `fail`: FAILED + EventBridge alert in about 70 s, curated untouched · `evolve`: SUCCEEDED, drift recorded |
+| Tests | analytics **114 passed**; Lambda 9, Glue ETL 13 and the IAM/S3 policy guard 9, all in CI |
+| Security gates on every M8 PR (#101–#106) | secrets, SAST (+ the IAM guard and Lambda/Glue tests) and dependencies all green |
+
+**Known limits (stated, not hidden):**
+
+- The services still run locally. Real AWS is used for S3, DynamoDB, Lambda and Glue; SNS/SQS stay on LocalStack (ADR-003). Moving the services to ECS is M9 ([compute awareness](docs/architecture/aws-compute-awareness.md)).
+- Deploys use the developer's admin session; a CI deploy role is backlog B-20. Alarms and alerts have no notification target yet (SNS/email in M9).
+- Commitments moved to M9: the AI key's move to Secrets Manager (R-20) and malware scanning of uploads (B-13).
+- The peer or instructor review box in the M8 checklist is completed at the M8 review session.
+
+---
+
+## 🚀 Milestone 9 Status: COMPLETED — CI/CD, TERRAFORM & OBSERVABILITY
+
+| Task | Status | Where |
+| --- | --- | --- |
+| 9.1 CI/CD pipeline, part A: build, unit tests, security gates, container build and scan, integration tests, publish | Done (PR #108; green on `develop`) | [`ci.yml`](.github/workflows/ci.yml), [CI/CD guide](docs/operations/cicd.md) |
+| 9.1 CI/CD pipeline, part B: deploy dev, gated test/prod, rollback | Done (PR #110). dev deployed with `scripts/deploy/deploy-dev.sh` (developer session; the sandbox SCP blocks GitHub OIDC, so the CI deploy is implemented but switched off, B-20); rollback drill passed ([record](docs/operations/cicd.md#deployment-record)) | [deploy](docs/operations/cicd.md#deploy-part-b), [rollback](docs/operations/runbook.md#rollback) |
+| 9.2 Terraform: 5 modules, dev/test/prod, S3 remote state with locking, M8 resources imported, drift exercise | dev applied (M8 resources imported: 48 imported, 44 added, 0 destroyed; follow-up plan clean); drift exercise passed; test/prod plan-only | [`infrastructure/terraform/`](infrastructure/terraform/), [Terraform guide](docs/operations/terraform.md), [drift exercise](docs/operations/terraform-drift-exercise.md) |
+| 9.3 Observability: JSON logs with correlationId (4 services), Splunk HEC shipping (index `mortgage_dev`), dashboard, 5 alerts, SLOs | Done (PRs #112, #113), verified on a local Splunk; moving to the instructor's Splunk is configuration only | [observability](docs/operations/observability.md), [slo](docs/operations/slo.md), [`monitoring/splunk/`](monitoring/splunk/) |
+| 9.4 Incident simulation and RCA | Done: PostgreSQL outage drill, RCA with Splunk timestamps; follow-ups B-22…B-25 done and re-run (detection 1 min 4 s → 40 s, failures 30 s → 3 s with 503) | [RCA 2026-11-10](docs/operations/rca-2026-11-10.md), [incident response](docs/operations/incident-response.md) |
+| Demo & sign-off (validation + Definition of Done → evidence, cleanup) | [docs/operations/m9-demo-checklist.md](docs/operations/m9-demo-checklist.md), `bash scripts/m9-demo.sh` |
+
+Deviations (all recorded in the checklist): GitHub Actions instead of GitLab, deploys run with the developer session because the sandbox SCP blocks GitHub OIDC (B-20), S3-native state locking, test/prod plan-only, local Splunk until the course's HEC token is issued. Follow-ups from the RCA: B-22…B-25 done and verified by a re-run; B-26 open.
+
+## 🚀 Milestone 10 Status: COMPLETED — TESTING & PRODUCTION READINESS
+
+| Task | Status | Where |
+| --- | --- | --- |
+| 10.1 Test pyramid completion | Done: unit and API tests per service, contract, security, integration and E2E layers mapped, with counts, targets and gates | [test strategy](docs/operations/test-strategy.md) |
+| 10.2 Playwright + Cucumber framework | Done (PR #117): Cucumber features, steps through Playwright's API request context (no UI), API objects per service, parallel 2, retry 1, HTML + JUnit reports | [`tests/e2e/`](tests/e2e/) |
+| 10.3 Five E2E journeys in the CI gate | Done: J1 onboarding, J2 payment → history, J3 delinquency, J4 access denied, J5 grounded answer with citations; 16 scenarios, green locally (real LLM) and in CI run [42927278133](https://github.com/akr12403/mortgage-platform/actions/runs/42927278133); `publish` waits for `e2e-tests` | [features](tests/e2e/features/), [`ci.yml`](.github/workflows/ci.yml) |
+| 10.4 Production readiness | Done (PR #118): 12-item checklist with evidence, dry run, re-scan (0 findings), performance smoke (payment p95 209 ms, 0 errors), backup/restore check, rollback | [production readiness](docs/operations/production-readiness.md) |
+| 10.5 Final demonstration | Script and driver done; technical dry run 20/20 checks | [final demo script](docs/operations/final-demo-script.md), `python3 scripts/final-demo.py --pause` |
+| 10.6 Operational handover | Done: runbook *Common failures*, KT checklist, known issues; go-live recommendation **GO with conditions** | [KT checklist](docs/operations/kt-checklist.md), [known issues](docs/operations/known-issues.md), [go-live](docs/operations/production-readiness.md#appendix-go-live-recommendation) |
+| Release | `v1.0.0-capstone-rc1` on `develop` (images published, [digests](docs/operations/production-readiness.md#release-candidate)); `v1.0.0-capstone` on `main` | tags |
+
+Reviewed and approved by Sumanth Donur, 2026-11-10 (M6–M10 sign-off boxes ticked). Not production-ready for real borrower data until go-live conditions C-1 to C-6 are met.
+
+## 🛠️ Local Development & Reset Workflow
+To reset and seed your local PostgreSQL environment:
+```powershell
+.\database\scripts\reset-dev-db.ps1

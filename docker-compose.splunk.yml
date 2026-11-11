@@ -1,0 +1,59 @@
+# M9 Task 9.3: ship the four services' JSON logs to Splunk HEC (index mortgage_dev). Do not run this file directly:
+#   bash scripts/splunk/local-up.sh        # local Splunk on this Mac + the stack with log shipping (generates its own
+#                                          # admin password and HEC token into the git-ignored .env.splunk-local)
+#   SPLUNK_HEC_HOST=… SPLUNK_HEC_TOKEN=… docker compose -f docker-compose.yml -f docker-compose.splunk.yml up -d
+#                                          # any other Splunk (e.g. the instructor's): host/port/token from the environment
+#
+# Path: service stdout -> Docker fluentd log driver -> log-shipper (Fluent Bit) -> Splunk HEC over TLS.
+# Docker keeps a local copy too (dual logging), so `docker compose logs` still works. fluentd-async: a service never
+# waits for, or fails because of, the log shipper. Details: docs/operations/observability.md#splunk
+x-ship-logs: &ship-logs
+  logging:
+    driver: fluentd
+    options:
+      fluentd-address: "localhost:24224"
+      fluentd-async: "true"
+      tag: "mortgage.{{.Name}}"
+
+services:
+  log-shipper:
+    image: fluent/fluent-bit:5.1.2
+    command: ["/fluent-bit/bin/fluent-bit", "-c", "/fluent-bit/etc/mortgage/fluent-bit.conf"]
+    ports:
+      - "127.0.0.1:24224:24224"
+    volumes:
+      - ./monitoring/splunk/fluent-bit:/fluent-bit/etc/mortgage:ro
+    environment:
+      SPLUNK_HEC_HOST: ${SPLUNK_HEC_HOST:?set SPLUNK_HEC_HOST (or run scripts/splunk/local-up.sh)}
+      SPLUNK_HEC_PORT: ${SPLUNK_HEC_PORT:-8088}
+      SPLUNK_HEC_TOKEN: ${SPLUNK_HEC_TOKEN:?set SPLUNK_HEC_TOKEN (never commit it)}
+      SPLUNK_HEC_TLS_VERIFY: ${SPLUNK_HEC_TLS_VERIFY:-On}
+      SPLUNK_INDEX: ${SPLUNK_INDEX:-mortgage_dev}
+    restart: unless-stopped
+
+  # Local Splunk Enterprise (free, single instance) for building and testing; only with --profile splunk-local.
+  # amd64-only image: on Apple silicon it runs under emulation (enable Rosetta in Docker Desktop). UI and management
+  # API are bound to 127.0.0.1 (UI http://localhost:8002); HEC (8088) is reachable only inside the compose network.
+  splunk:
+    profiles: ["splunk-local"]
+    image: splunk/splunk:${SPLUNK_IMAGE_TAG:-10.2}
+    platform: linux/amd64
+    environment:
+      SPLUNK_START_ARGS: --accept-license
+      SPLUNK_GENERAL_TERMS: --accept-sgt-current-at-splunk-com
+      SPLUNK_PASSWORD: ${SPLUNK_LOCAL_ADMIN_PASSWORD:-}
+    ports:
+      - "127.0.0.1:8002:8000"   # UI on 8002: analytics-service already uses 8000
+      - "127.0.0.1:8089:8089"
+    volumes:
+      - splunk-var:/opt/splunk/var
+      - splunk-etc:/opt/splunk/etc
+
+  mortgage-service: *ship-logs
+  servicing-service: *ship-logs
+  analytics-service: *ship-logs
+  knowledge-assistant: *ship-logs
+
+volumes:
+  splunk-var:
+  splunk-etc:

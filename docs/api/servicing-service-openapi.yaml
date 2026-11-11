@@ -1,0 +1,169 @@
+openapi: 3.0.3
+info:
+  title: servicing-service API
+  version: v1
+  description: |
+    Servicing history and delinquency snapshot, projected from lifecycle events consumed from
+    SQS capstone-mortgage-servicing-dev (see docs/architecture/event-catalog.md). Reads are eventually
+    consistent with mortgage-service (typically a few seconds). Breaking-change policy: ADR-002.
+    M6: every operation except /actuator/health requires `Authorization: Bearer <jwt>` issued by mortgage-service
+    POST /api/v1/auth/login, plus one of the roles in `x-roles` (403 ACCESS_DENIED otherwise).
+    Missing token → 401 UNAUTHORIZED; invalid/expired/tampered → 401 INVALID_TOKEN.
+servers:
+  - url: http://localhost:8081
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/mortgages/{mortgageExternalId}/servicing-history:
+    get:
+      summary: Chronological servicing history for a mortgage
+      operationId: getServicingHistory
+      x-roles: [ADMIN, UNDERWRITER, SERVICING_AGENT, RISK_ANALYST, SUPPORT]
+      parameters:
+        - $ref: '#/components/parameters/MortgageExternalId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '200':
+          description: History, oldest first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServicingHistoryResponse' }
+              example:
+                mortgageExternalId: MTG-1001
+                events:
+                  - eventTime: '2026-03-15T14:30:01Z'
+                    eventType: PAYMENT_POSTED
+                    description: Payment 1850.00 posted; balance now 317650.00
+        '404': { $ref: '#/components/responses/Error' }
+  /api/v1/mortgages/{mortgageExternalId}/delinquency:
+    get:
+      summary: Current delinquency snapshot (populated from LoanDelinquent events)
+      operationId: getDelinquency
+      x-roles: [ADMIN, UNDERWRITER, SERVICING_AGENT, RISK_ANALYST, SUPPORT]
+      parameters:
+        - $ref: '#/components/parameters/MortgageExternalId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '200':
+          description: Snapshot; delinquency fields are null when the mortgage has never been delinquent
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DelinquencyResponse' }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/v1/mortgages/{mortgageExternalId}/servicing-events:
+    post:
+      summary: Record a manual servicing note (e.g. ESCROW_ANALYSIS)
+      description: Lifecycle events arrive via SQS; this endpoint is for agent-entered notes only.
+      operationId: createServicingEvent
+      x-roles: [ADMIN, SERVICING_AGENT]
+      parameters:
+        - $ref: '#/components/parameters/MortgageExternalId'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [eventType]
+              properties:
+                eventType: { type: string, pattern: '^[A-Z][A-Z0-9_]{2,49}$', example: ESCROW_ANALYSIS }
+                description: { type: string, maxLength: 2000 }
+      responses:
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServicingEvent' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /actuator/health:
+    get:
+      summary: Liveness/readiness (used by the container HEALTHCHECK)
+      operationId: health
+      security: []
+      responses:
+        '200':
+          description: UP
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token issued by mortgage-service POST /api/v1/auth/login (same JWT_SECRET and issuer).
+  parameters:
+    MortgageExternalId:
+      name: mortgageExternalId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^MTG-[0-9]{4}$', example: MTG-1001 }
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      schema: { type: string, format: uuid }
+  responses:
+    RateLimited:
+      description: Too many requests (code RATE_LIMITED). Login is limited per account and per client IP; writes per user (M6 Task 6.3)
+      headers:
+        Retry-After:
+          description: Seconds until the current window resets
+          schema: { type: integer, minimum: 1 }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Forbidden:
+      description: Authenticated but the caller's role is not allowed (code ACCESS_DENIED); see x-roles
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Unauthorized:
+      description: Missing (UNAUTHORIZED) or invalid/expired/tampered (INVALID_TOKEN) bearer token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Error:
+      description: Shared error envelope (guides/standards.md); unknown mortgage returns code MORTGAGE_NOT_FOUND
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  schemas:
+    ServicingEvent:
+      type: object
+      properties:
+        eventTime: { type: string, format: date-time }
+        eventType:
+          type: string
+          description: |
+            Lifecycle-derived values: MORTGAGE_CREATED, LOAN_APPROVED, PAYMENT_POSTED, PAYMENT_MISSED,
+            DELINQUENCY_ASSIGNED. Seed data and manual notes may contain other values (e.g. ESCROW_ANALYSIS).
+        description: { type: string }
+    ServicingHistoryResponse:
+      type: object
+      properties:
+        mortgageExternalId: { type: string, example: MTG-1001 }
+        events:
+          type: array
+          items: { $ref: '#/components/schemas/ServicingEvent' }
+    DelinquencyResponse:
+      type: object
+      properties:
+        mortgageExternalId: { type: string, example: MTG-1002 }
+        status: { type: string, enum: [PENDING, ACTIVE, DELINQUENT, CLOSED], example: DELINQUENT }
+        delinquentSince: { type: string, format: date, nullable: true, example: '2026-01-10' }
+        daysPastDue: { type: integer, nullable: true, example: 45 }
+        severity: { type: string, enum: [MODERATE, SEVERE, CRITICAL], nullable: true, example: MODERATE }
+    ErrorEnvelope:
+      type: object
+      required: [code, message, correlationId, timestamp]
+      properties:
+        code: { type: string, example: MORTGAGE_NOT_FOUND }
+        message: { type: string, example: Mortgage MTG-9999 was not found }
+        correlationId: { type: string }
+        timestamp: { type: string, format: date-time }

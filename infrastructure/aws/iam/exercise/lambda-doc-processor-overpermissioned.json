@@ -1,0 +1,30 @@
+{
+  "_comment": "Task 8.1 mini exercise, BEFORE. A typical 'make it work' policy for the document Lambda. Never applied to AWS; tests/security/test_iam_policies.py must flag it. Fixed version: ../policies/lambda-doc-processor-role.json. Walkthrough: docs/architecture/aws-iam-matrix.md#mini-exercise-fix-an-over-permissioned-policy",
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "S3Access",
+      "Effect": "Allow",
+      "Action": "s3:*",
+      "Resource": "*"
+    },
+    {
+      "Sid": "DynamoAccess",
+      "Effect": "Allow",
+      "Action": "dynamodb:*",
+      "Resource": "arn:aws:dynamodb:*:*:table/*"
+    },
+    {
+      "Sid": "Logs",
+      "Effect": "Allow",
+      "Action": "logs:*",
+      "Resource": "*"
+    },
+    {
+      "Sid": "PassRoleForLater",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "*"
+    }
+  ]
+}

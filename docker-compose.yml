@@ -1,0 +1,242 @@
+# Local stack: PostgreSQL (pgvector) + LocalStack (SNS/SQS) + 3 services (M5) + knowledge assistant on :8001 (M7).
+#   docker compose up --build -d   then   docker compose ps   (all should be "healthy")
+# Values can be overridden from a root .env file (copy .env.example). No secrets are baked into images.
+
+x-db-env: &db-env
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: ${POSTGRES_DB:-mortgage_intel}
+  POSTGRES_USER: ${POSTGRES_USER:-mortgage_app}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env - see .env.example}
+
+# M6 auth: REQUIRED in your local .env (never committed). Compose refuses to start without them.
+x-jwt-env: &jwt-env
+  JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (>= 32 bytes, e.g. openssl rand -base64 48) - see .env.example}
+  JWT_ISSUER: ${JWT_ISSUER:-capstone-mortgage-auth}
+
+# M6 Task 6.3: in-memory rate limits (per container instance). Defaults are fine for local dev and the smoke tests.
+x-rate-limit-env: &rate-limit-env
+  RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+  RATE_LIMIT_LOGIN_PER_USER: ${RATE_LIMIT_LOGIN_PER_USER:-10}
+  RATE_LIMIT_LOGIN_PER_IP: ${RATE_LIMIT_LOGIN_PER_IP:-60}
+  RATE_LIMIT_WRITES_PER_USER: ${RATE_LIMIT_WRITES_PER_USER:-60}
+  RATE_LIMIT_UPLOADS_PER_USER: ${RATE_LIMIT_UPLOADS_PER_USER:-20}
+
+# LocalStack accepts any credentials; real AWS would use a profile/role instead (never commit keys).
+x-aws-env: &aws-env
+  AWS_REGION: ${AWS_REGION:-us-east-1}
+  AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL_DOCKER:-http://localstack:4566}
+  AWS_ACCESS_KEY_ID: ${LOCALSTACK_ACCESS_KEY_ID:-test}
+  AWS_SECRET_ACCESS_KEY: ${LOCALSTACK_SECRET_ACCESS_KEY:-test}
+
+# M7 knowledge assistant: OpenAI-compatible API + RAG settings. LLM_API_KEY lives only in your local .env.
+x-llm-env: &llm-env
+  LLM_API_BASE: ${LLM_API_BASE:-https://api.openai.com/v1}
+  LLM_API_KEY: ${LLM_API_KEY:-}
+  LLM_MODEL: ${LLM_MODEL:-gpt-6-luna}
+  LLM_REASONING_EFFORT: ${LLM_REASONING_EFFORT:-low}
+  LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-2000}
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+  EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
+  KNOWLEDGE_VERSION: ${KNOWLEDGE_VERSION:-v1}
+  RAG_CHUNK_SIZE: ${RAG_CHUNK_SIZE:-512}
+  RAG_CHUNK_OVERLAP: ${RAG_CHUNK_OVERLAP:-64}
+  RAG_TOP_K: ${RAG_TOP_K:-5}
+  RAG_SIMILARITY_THRESHOLD: ${RAG_SIMILARITY_THRESHOLD:-0.45}
+
+services:
+  postgres:
+    # PostgreSQL 17 + pgvector (M7 knowledge assistant). Same Debian trixie base as postgres:17.7, so existing
+    # volumes start unchanged; migration 005 enables the extension.
+    image: pgvector/pgvector:0.8.7-pg17-trixie
+    container_name: capstone-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mortgage_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env - see .env.example}
+      POSTGRES_DB: ${POSTGRES_DB:-mortgage_intel}
+    ports:
+      - "5432:5432"
+    volumes:
+      - mortgage_platform_canonical_postgres_data_v2:/var/lib/postgresql/data
+      # First start of an EMPTY volume only: schema + seed.
+      - ./database/migrations/001_core_schema.sql:/docker-entrypoint-initdb.d/01-core-schema.sql:ro
+      - ./database/seed/seed_mortgage_data.sql:/docker-entrypoint-initdb.d/03-seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Applies the idempotent migrations (002+) on every `up`, so existing volumes get new tables too.
+  db-migrate:
+    image: postgres:17.7
+    container_name: capstone-db-migrate
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-mortgage_app}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env - see .env.example}
+      PGDATABASE: ${POSTGRES_DB:-mortgage_intel}
+    volumes:
+      - ./database/migrations:/migrations:ro
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -euo pipefail
+        for f in /migrations/0*.sql; do
+          case "$$(basename "$$f")" in 001_*) continue ;; esac
+          echo "Applying $$f"
+          psql -v ON_ERROR_STOP=1 -q -f "$$f"
+        done
+        echo "Migrations up to date"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  localstack:
+    image: localstack/localstack:3.8.0
+    container_name: capstone-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=sns,sqs
+      - AWS_DEFAULT_REGION=us-east-1
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4566/_localstack/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  # Creates topic, per-consumer queues, DLQs, redrive policies and subscriptions (idempotent).
+  messaging-init:
+    image: localstack/localstack:3.8.0
+    container_name: capstone-messaging-init
+    entrypoint: ["/bin/bash"]
+    command: ["/init/01-create-mortgage-messaging.sh"]
+    environment:
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    volumes:
+      - ./localstack/init/ready.d/01-create-mortgage-messaging.sh:/init/01-create-mortgage-messaging.sh:ro
+    depends_on:
+      localstack:
+        condition: service_healthy
+    restart: "no"
+
+  mortgage-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.mortgage-service
+    image: capstone/mortgage-service:dev
+    container_name: mortgage-service
+    ports:
+      - "8080:8080"
+    environment:
+      <<: [*db-env, *aws-env, *jwt-env, *rate-limit-env]
+      SPRING_PROFILES_ACTIVE: dev
+      JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-3600}
+      AUTH_SEED_PASSWORD: ${AUTH_SEED_PASSWORD:?Set AUTH_SEED_PASSWORD in .env (>= 12 chars, local dev only) - see .env.example}
+      SNS_TOPIC_MORTGAGE_EVENTS: ${SNS_TOPIC_MORTGAGE_EVENTS:-arn:aws:sns:us-east-1:000000000000:capstone-mortgage-lifecycle-dev}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      messaging-init:
+        condition: service_completed_successfully
+    # HEALTHCHECK (GET /actuator/health) is defined in docker/Dockerfile.mortgage-service
+
+  servicing-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.servicing-service
+    image: capstone/servicing-service:dev
+    container_name: servicing-service
+    ports:
+      - "8081:8081"
+    environment:
+      <<: [*db-env, *aws-env, *jwt-env, *rate-limit-env]
+      SPRING_PROFILES_ACTIVE: dev
+      SQS_QUEUE_SERVICING_EVENTS: ${SQS_QUEUE_SERVICING_EVENTS_DOCKER:-http://localstack:4566/000000000000/capstone-mortgage-servicing-dev}
+      SQS_MAX_RECEIVE_COUNT: "3"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      messaging-init:
+        condition: service_completed_successfully
+    # HEALTHCHECK (GET /actuator/health) is defined in docker/Dockerfile.servicing-service
+
+  analytics-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.analytics-service
+      target: runtime
+    image: capstone/analytics-service:dev
+    container_name: analytics-service
+    ports:
+      - "8000:8000"
+    environment:
+      <<: [*db-env, *aws-env, *jwt-env, *rate-limit-env]
+      SQS_QUEUE_ANALYTICS_EVENTS: ${SQS_QUEUE_ANALYTICS_EVENTS_DOCKER:-http://localstack:4566/000000000000/capstone-mortgage-analytics-dev}
+      SQS_MAX_RECEIVE_COUNT: "3"
+      S3_BUCKET_DOCUMENTS: ${S3_BUCKET_DOCUMENTS:-capstone-mortgage-docs-dev}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      messaging-init:
+        condition: service_completed_successfully
+    # HEALTHCHECK (GET /health) is defined in docker/Dockerfile.analytics-service
+
+  # M7 one-off commands (not started by `up`). Task 7.2 ingestion, Task 7.3 ask/calibrate:
+  #   docker compose run --rm knowledge-ingest                                      # embed + store (needs LLM_API_KEY)
+  #   docker compose run --rm knowledge-ingest python -m src.ingest --dry-run --show-chunks   # no API calls
+  #   docker compose run --rm knowledge-ingest python -m src.rag.calibrate          # measure similarity threshold
+  #   docker compose run --rm knowledge-ingest python -m src.rag.ask "What is the delinquency contact timeline?"
+  #   docker compose run --rm knowledge-ingest python -m src.ops.summarize_incident incidents/INC-2026-0042-servicing-dlq-backlog.txt
+  knowledge-ingest:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.knowledge-assistant
+      target: runtime
+    image: capstone/knowledge-assistant:dev
+    profiles: ["ingest"]
+    command: ["python", "-m", "src.ingest"]
+    healthcheck:
+      disable: true          # one-off commands, not the API
+    environment:
+      <<: [*db-env, *llm-env]
+    volumes:
+      # Mounted read-only so corpus edits are picked up without rebuilding the image.
+      - ./ai/mortgage-knowledge-assistant/knowledge:/app/knowledge:ro
+      # Task 7.6 sample incidents for: python -m src.ops.summarize_incident incidents/<file>
+      - ./ai/mortgage-knowledge-assistant/incidents:/app/incidents:ro
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  # M7 Task 7.4: the assistant API. Requires the M6 JWT (same JWT_SECRET) on POST /api/v1/assistant/ask.
+  # Starts without LLM_API_KEY too: /health stays UP, /health/ready and /ask return 503 until the key is set.
+  knowledge-assistant:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.knowledge-assistant
+      target: runtime
+    image: capstone/knowledge-assistant:dev
+    container_name: knowledge-assistant
+    ports:
+      - "8001:8001"
+    environment:
+      <<: [*db-env, *jwt-env, *llm-env]
+      RATE_LIMIT_ASSISTANT_PER_USER: ${RATE_LIMIT_ASSISTANT_PER_USER:-20}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+    # HEALTHCHECK (GET /health) is defined in docker/Dockerfile.knowledge-assistant
+
+volumes:
+  mortgage_platform_canonical_postgres_data_v2:

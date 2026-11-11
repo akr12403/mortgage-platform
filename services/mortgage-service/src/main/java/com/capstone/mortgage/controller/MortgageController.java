@@ -1,0 +1,101 @@
+package com.capstone.mortgage.controller;
+
+import com.capstone.mortgage.dto.MortgageCreateRequest;
+import com.capstone.mortgage.dto.MortgageResponse;
+import com.capstone.mortgage.dto.PaymentRequest;
+import com.capstone.mortgage.exception.BusinessRuleException;
+import com.capstone.mortgage.dto.UnderwritingDecisionRequest;
+import com.capstone.mortgage.entity.Mortgage;
+import com.capstone.mortgage.entity.Payment;
+import com.capstone.mortgage.security.Rbac;
+import com.capstone.mortgage.service.MortgageService;
+import com.capstone.mortgage.service.PaymentService;
+import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/v1/mortgages")
+public class MortgageController {
+
+    static final int MAX_PAGE_SIZE = 100;
+
+    private final MortgageService mortgageService;
+    private final PaymentService paymentService;
+
+    public MortgageController(MortgageService mortgageService, PaymentService paymentService) {
+        this.mortgageService = mortgageService;
+        this.paymentService = paymentService;
+    }
+
+    @PostMapping
+    public ResponseEntity<MortgageResponse> createMortgage(@Valid @RequestBody MortgageCreateRequest request,
+                                                           Authentication authentication) {
+        Mortgage saved = mortgageService.saveMortgage(request, decidingRole(authentication));
+        return new ResponseEntity<>(MortgageResponse.from(saved), HttpStatus.CREATED);
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<MortgageResponse> getMortgageById(@PathVariable String id) {
+        return ResponseEntity.ok(MortgageResponse.from(mortgageService.getMortgageById(id)));
+    }
+
+    @GetMapping
+    public ResponseEntity<Page<MortgageResponse>> getMortgagesByBorrower(
+            @RequestParam String borrowerId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        // OWASP API4 (unrestricted resource consumption): bound page size
+        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
+            throw BusinessRuleException.badRequest("VALIDATION_ERROR",
+                    "page must be >= 0 and size must be between 1 and " + MAX_PAGE_SIZE);
+        }
+        Page<Mortgage> mortgages = mortgageService.getMortgagesByBorrower(borrowerId, PageRequest.of(page, size));
+        return ResponseEntity.ok(mortgages.map(MortgageResponse::from));
+    }
+
+    /**
+     * Approval workflow stub (M5): records the underwriting decision and emits LoanApproved when approved.
+     * Allowed roles: ADMIN, UNDERWRITER (enforced in SecurityConfig). The approvedByRole recorded on the event is the
+     * caller's own role from the JWT.
+     */
+    @PostMapping("/{id}/underwriting-decision")
+    public ResponseEntity<MortgageResponse> recordUnderwritingDecision(
+            @PathVariable String id,
+            @Valid @RequestBody UnderwritingDecisionRequest request,
+            Authentication authentication) {
+        Mortgage mortgage = mortgageService.recordUnderwritingDecision(id, request.decision(), decidingRole(authentication));
+        return ResponseEntity.ok(MortgageResponse.from(mortgage));
+    }
+
+    private static String decidingRole(Authentication authentication) {
+        boolean underwriter = authentication.getAuthorities().stream()
+                .anyMatch(a -> ("ROLE_" + Rbac.UNDERWRITER).equals(a.getAuthority()));
+        return underwriter ? Rbac.UNDERWRITER : Rbac.ADMIN;
+    }
+
+    @GetMapping("/{id}/payments")
+    public ResponseEntity<List<Payment>> getPayments(@PathVariable String id) {
+        return ResponseEntity.ok(mortgageService.getPaymentsByMortgage(id));
+    }
+
+    @PostMapping("/{id}/payments")
+    public ResponseEntity<Payment> createPayment(
+            @PathVariable String id,
+            @Valid @RequestBody PaymentRequest request,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        if (idempotencyKey != null && (idempotencyKey.isBlank() || idempotencyKey.length() > 255)) {
+            throw BusinessRuleException.badRequest("VALIDATION_ERROR", "Idempotency-Key must be 1-255 characters");
+        }
+        PaymentService.PaymentOutcome outcome = paymentService.processPayment(id, request.toNewEntity(), idempotencyKey);
+        return ResponseEntity.ok()
+                .header("Idempotent-Replayed", Boolean.toString(outcome.replayed()))
+                .body(outcome.payment());
+    }
+}

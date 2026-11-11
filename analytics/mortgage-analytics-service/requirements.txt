@@ -1,0 +1,10 @@
+# Runtime dependencies (baked into the container image)
+fastapi
+uvicorn[standard]
+pandas
+sqlalchemy
+psycopg2-binary
+boto3
+python-dotenv
+python-multipart
+PyJWT

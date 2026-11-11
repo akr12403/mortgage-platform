@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- M9 Task 9.3: one JSON object per line (Elastic Common Schema, Spring Boot structured logging; no extra library).
+     MDC fields (correlationId, user, eventId) and SLF4J key-value pairs become JSON fields; service.name comes from
+     spring.application.name. Same field names as the Python services: docs/operations/observability.md -->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="org.springframework.boot.logging.logback.StructuredLogEncoder">
+            <format>ecs</format>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

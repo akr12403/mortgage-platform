@@ -1,0 +1,7 @@
+# INC-2026-0043 - SYNTHETIC incident for the M7 Task 7.6 demo. Fictional report; no real systems or people.
+
+Message from the support channel (forwarded to on-call), no logs attached:
+
+"Hi, a couple of the servicing agents said the system felt slow this afternoon and one of them thinks
+she saw an error page at some point, maybe when posting a payment? It seemed fine again later.
+Not sure which screen or what time exactly. Can someone take a look?"

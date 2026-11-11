@@ -1,0 +1,24 @@
+# ---------- Build stage: JDK + Maven (never shipped) ----------
+FROM maven:3.9-eclipse-temurin-17 AS build
+WORKDIR /build
+# Resolve dependencies first so source-only changes reuse this cached layer.
+COPY services/servicing-service/pom.xml .
+RUN mvn -B -q dependency:go-offline
+COPY services/servicing-service/src ./src
+RUN mvn -B -q clean package -DskipTests
+
+# ---------- Runtime stage: JRE only, non-root, no build tools ----------
+FROM eclipse-temurin:17-jre-jammy
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system app && useradd --system --gid app --no-create-home app
+WORKDIR /app
+COPY --from=build /build/target/*.jar app.jar
+USER app
+EXPOSE 8081
+# No credentials or .env files are copied into the image; all config is injected at runtime.
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=75"
+HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=5 \
+    CMD curl -fsS http://localhost:8081/actuator/health || exit 1
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]

@@ -1,0 +1,19 @@
+{
+  "_comment": "M8 Task 8.3: one item per uploaded document, written by the document Lambda. PK = mortgage (all documents of one loan in one partition, Query by mortgage), SK = the S3 key (unique per upload; idempotent re-processing). On-demand capacity: no idle cost. TTL attribute expiresAt matches the 30-day dev lifecycle of the documents bucket.",
+  "TableName": "${DOC_METADATA_TABLE}",
+  "AttributeDefinitions": [
+    { "AttributeName": "mortgageExternalId", "AttributeType": "S" },
+    { "AttributeName": "s3Key", "AttributeType": "S" }
+  ],
+  "KeySchema": [
+    { "AttributeName": "mortgageExternalId", "KeyType": "HASH" },
+    { "AttributeName": "s3Key", "KeyType": "RANGE" }
+  ],
+  "BillingMode": "PAY_PER_REQUEST",
+  "SSESpecification": { "Enabled": false },
+  "Tags": [
+    { "Key": "Project", "Value": "${TAG_PROJECT}" },
+    { "Key": "Environment", "Value": "${TAG_ENVIRONMENT}" },
+    { "Key": "Team", "Value": "${TAG_TEAM}" }
+  ]
+}

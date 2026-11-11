@@ -1,0 +1,160 @@
+<form version="1.1" theme="light">
+  <label>Mortgage Platform: Service Health (M9)</label>
+  <description>Request rate, 5xx rate, payment latency and the payment SLI from the http_request log line of all four services; errors and consumer failures from the log contract (docs/operations/observability.md). SLOs: docs/operations/slo.md</description>
+  <fieldset submitButton="false" autoRun="true">
+    <input type="time" token="window" searchWhenChanged="true">
+      <label>Time range</label>
+      <default>
+        <earliest>-60m@m</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+  </fieldset>
+  <row>
+    <panel>
+      <title>Payment API success (SLI, target 99.5%)</title>
+      <single>
+        <search>
+          <query>index=mortgage_dev message=http_request service.name=mortgage-service http.method=POST http.route="/api/v1/mortgages/{id}/payments" http.status!=429
+| eval good=if('http.status'&lt;500,1,0)
+| stats count as total, sum(good) as good
+| eval sli=if(total&gt;0, round(good/total*100,2), null())
+| fields sli</query>
+          <earliest>$window.earliest$</earliest>
+          <latest>$window.latest$</latest>
+        </search>
+        <option name="unit">%</option>
+        <option name="rangeColors">["0xdc4e41","0xf8be34","0x53a051"]</option>
+        <option name="rangeValues">[99,99.5]</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Payment latency p95 (target &lt; 500 ms)</title>
+      <single>
+        <search>
+          <query>index=mortgage_dev message=http_request service.name=mortgage-service http.method=POST http.route="/api/v1/mortgages/{id}/payments" http.status!=429
+| stats perc95(durationMs) as p95
+| eval p95=round(p95,1)</query>
+          <earliest>$window.earliest$</earliest>
+          <latest>$window.latest$</latest>
+        </search>
+        <option name="unit">ms</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xdc4e41"]</option>
+        <option name="rangeValues">[400,500]</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Database reachable</title>
+      <single>
+        <search>
+          <query>index=mortgage_dev log.level=ERROR ("Database unavailable" OR "Connection is not available")
+| stats count as errors
+| eval status=if(errors&gt;0, "UNREACHABLE (" . errors . " errors)", "OK")
+| fields status</query>
+          <earliest>-5m@m</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="useColors">0</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Errors logged (all services)</title>
+      <single>
+        <search>
+          <query>index=mortgage_dev log.level=ERROR | stats count</query>
+          <earliest>$window.earliest$</earliest>
+          <latest>$window.latest$</latest>
+        </search>
+        <option name="rangeColors">["0x53a051","0xdc4e41"]</option>
+        <option name="rangeValues">[0]</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Request rate by service (requests per minute)</title>
+      <chart>
+        <search>
+          <query>index=mortgage_dev message=http_request | timechart span=1m count by service.name</query>
+          <earliest>$window.earliest$</earliest>
+          <latest>$window.latest$</latest>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">requests / min</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>5xx rate by service (%)</title>
+      <chart>
+        <search>
+          <query>index=mortgage_dev message=http_request
+| eval is_5xx=if('http.status'&gt;=500,100,0)
+| timechart span=5m avg(is_5xx) by service.name</query>
+          <earliest>$window.earliest$</earliest>
+          <latest>$window.latest$</latest>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">% of requests</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Payment API latency (POST /api/v1/mortgages/{id}/payments)</title>
+      <chart>
+        <search>
+          <query>index=mortgage_dev message=http_request service.name=mortgage-service http.method=POST http.route="/api/v1/mortgages/{id}/payments" http.status!=429
+| timechart span=5m perc50(durationMs) as p50, perc95(durationMs) as p95, max(durationMs) as max</query>
+          <earliest>$window.earliest$</earliest>
+          <latest>$window.latest$</latest>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">ms</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Event consumer failures (retried; dead-lettered after 3 receives)</title>
+      <chart>
+        <search>
+          <query>index=mortgage_dev (log.logger="com.capstone.servicing.service.EventConsumerService" OR log.logger="src.messaging.event_consumer" OR log.logger="src.messaging.bootstrap") (log.level=WARN OR log.level=ERROR)
+| timechart span=5m count by service.name</query>
+          <earliest>$window.earliest$</earliest>
+          <latest>$window.latest$</latest>
+        </search>
+        <option name="charting.chart">column</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Throttled requests (429, by route): client limits, not counted as failures</title>
+      <chart>
+        <search>
+          <query>index=mortgage_dev message=http_request http.status=429 | timechart span=1m count by http.route</query>
+          <earliest>$window.earliest$</earliest>
+          <latest>$window.latest$</latest>
+        </search>
+        <option name="charting.chart">column</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Latest errors (click a correlationId to follow the request)</title>
+      <table>
+        <search>
+          <query>index=mortgage_dev log.level=ERROR
+| table _time service.name correlationId log.logger message error.type
+| head 20</query>
+          <earliest>$window.earliest$</earliest>
+          <latest>$window.latest$</latest>
+        </search>
+        <drilldown>
+          <link target="_blank">search?q=search%20index%3Dmortgage_dev%20correlationId%3D%22$row.correlationId$%22%20%7C%20sort%20_time&amp;earliest=-24h&amp;latest=now</link>
+        </drilldown>
+      </table>
+    </panel>
+  </row>
+</form>

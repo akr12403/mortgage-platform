@@ -1,0 +1,63 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: servicing-service
+  autoconfigure:
+    # Token validation only; no local users, so skip Spring's default in-memory user.
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:mortgage_intel}
+    username: ${POSTGRES_USER:mortgage_app}
+    # REQUIRED (DP-GAP-2, M6 Task 6.6): no code default, so a missing secret stops startup instead of
+    # falling back to a guessable password. Locally it comes from .env via docker compose.
+    password: ${POSTGRES_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      # M9 RCA 2026-11-10 (B-22): fail fast when the database is unreachable (was 30 s: every request hung, then 500).
+      connection-timeout: ${DB_CONNECTION_TIMEOUT_MS:3000}
+      validation-timeout: 1000
+      minimum-idle: 2
+      maximum-pool-size: 10
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+aws:
+  region: ${AWS_REGION:us-east-1}
+  # Set only for LocalStack (e.g. http://localstack:4566). Leave empty for real AWS.
+  endpoint-url: ${AWS_ENDPOINT_URL:}
+  sqs:
+    queue-url: ${SQS_QUEUE_SERVICING_EVENTS:http://localhost:4566/000000000000/capstone-mortgage-servicing-dev}
+
+app:
+  messaging:
+    consumer-enabled: ${SERVICING_CONSUMER_ENABLED:true}
+    # Must match the queue RedrivePolicy maxReceiveCount (used for the ERROR "moving to DLQ" log).
+    max-receive-count: ${SQS_MAX_RECEIVE_COUNT:3}
+    poll-delay-ms: ${SQS_POLL_DELAY_MS:2000}
+  security:
+    jwt:
+      # REQUIRED: same JWT_SECRET as mortgage-service (>= 32 bytes, env only). Startup fails if missing/short.
+      secret: ${JWT_SECRET:}
+      issuer: ${JWT_ISSUER:capstone-mortgage-auth}
+    # Task 6.3: state-changing requests per authenticated user per minute (429 RATE_LIMITED when exceeded)
+    rate-limit:
+      enabled: ${RATE_LIMIT_ENABLED:true}
+      writes-per-user-per-minute: ${RATE_LIMIT_WRITES_PER_USER:60}

@@ -1,0 +1,13 @@
+# SAST scope (M6 Task 6.7): production code only. Tests deliberately contain fake secrets, tampered tokens and
+# injection strings; they are covered by the secret scan and by their own assertions instead.
+node_modules/
+dist/
+target/
+reports/
+.m2/
+services/*/src/test/
+analytics/*/tests/
+ai/*/tests/
+clients/*/test/
+tests/
+docs/
