@@ -58,8 +58,8 @@ No residual risk is in the High band.
 
 | Risk | Accepted by | Rationale | Conditions | Expires |
 | --- | --- | --- | --- | --- |
-| R-04 shared HMAC key | Security lead | Three internal services in one trust zone; asymmetric keys add a JWKS endpoint and key distribution, which belong with the M9 platform work | key ≥ 256 bit, Secrets Manager only, 90-day rotation, compromise playbook in the runbook | M9 sign-off |
-| R-05 no token revocation | Security lead | 1 h TTL bounds the window; a key rotation revokes everything in an emergency | HTTPS only; clients keep tokens in memory | M9 sign-off |
+| R-04 shared HMAC key | Security lead | Three internal services in one trust zone; asymmetric keys add a JWKS endpoint and key distribution, which belong with the M9 platform work | key ≥ 256 bit, Secrets Manager only, 90-day rotation, compromise playbook in the runbook | go-live (renewed at the M10 readiness review, 2026-11-11; replaced by B-10) |
+| R-05 no token revocation | Security lead | 1 h TTL bounds the window; a key rotation revokes everything in an emergency | HTTPS only; clients keep tokens in memory | go-live (renewed at the M10 readiness review, 2026-11-11; replaced by B-11) |
 | VULN-M6-017 per-instance rate limits (part of R-09) | Platform lead | correct for the single-instance stack | must be replaced before horizontal scaling | first multi-replica deploy |
 | GitHub branch protection not enforced (part of R-16) | Platform lead | private repository on a free personal plan: GitHub stores the rules but does not enforce them. The gates still run and fail visibly on every PR | team rule: never merge a PR with a red security check; rules take effect unchanged on a public repository or a Team/Enterprise organization | move to an organization plan (M9) |
 | VULN-M6-019 Spring Framework 6.2 CVE-2026-47884 / CVE-2026-47890 (part of R-17) | Backend lead + security lead | no open-source 6.2.x fix; vendor rates Medium/Low; `XsltView` and SSE view fragments are not used | no views, XSLT or SSE may be added; the `.trivyignore` entries carry `exp:2026-12-31`, after which the gate fails | 2026-12-31 or the Spring Boot 4 migration (B-18), whichever comes first |
@@ -67,5 +67,6 @@ No residual risk is in the High band.
 ## Review
 
 - Reviewed at every milestone sign-off, and whenever an endpoint, role or data store is added.
+- M10 readiness review, 2026-11-11: residual scores unchanged; R-04 and R-05 acceptances renewed to go-live; the top 5 residual risks and the go-live conditions are in [production-readiness.md](../operations/production-readiness.md#appendix-go-live-recommendation).
 - [ ] Peer review: Sumanth Donur, due 2026-11-10 (tick when done)
 - [ ] Instructor review (date)
