@@ -17,7 +17,7 @@ The Enterprise Mortgage Platform is an event-driven, microservices-based system 
 | **M7** | AI / RAG Assistant | 9 | `docs/milestones/m07.md` | **Completed** |
 | **M8** | AWS & Data Platform | 10 | `docs/milestones/m08.md` | **Completed** |
 | **M9** | CI/CD, Terraform, Observability | 11 | `docs/milestones/m09.md` | **Completed** |
-| **M10** | Testing & Production Readiness | 12 | `docs/milestones/m10.md` | In progress |
+| **M10** | Testing & Production Readiness | 12 | `docs/milestones/m10.md` | **Completed** (review pending) |
 
 ---
 
@@ -322,6 +322,20 @@ bash scripts/aws/teardown.sh           # remove everything M8 created
 | Demo & sign-off (validation + Definition of Done → evidence, cleanup) | [docs/operations/m9-demo-checklist.md](docs/operations/m9-demo-checklist.md), `bash scripts/m9-demo.sh` |
 
 Deviations (all recorded in the checklist): GitHub Actions instead of GitLab, deploys run with the developer session because the sandbox SCP blocks GitHub OIDC (B-20), S3-native state locking, test/prod plan-only, local Splunk until the course's HEC token is issued. Follow-ups from the RCA: B-22…B-25 done and verified by a re-run; B-26 open.
+
+## 🚀 Milestone 10 Status: COMPLETED — TESTING & PRODUCTION READINESS
+
+| Task | Status | Where |
+| --- | --- | --- |
+| 10.1 Test pyramid completion | Done: unit and API tests per service, contract, security, integration and E2E layers mapped, with counts, targets and gates | [test strategy](docs/operations/test-strategy.md) |
+| 10.2 Playwright + Cucumber framework | Done (PR #117): Cucumber features, steps through Playwright's API request context (no UI), API objects per service, parallel 2, retry 1, HTML + JUnit reports | [`tests/e2e/`](tests/e2e/) |
+| 10.3 Five E2E journeys in the CI gate | Done: J1 onboarding, J2 payment → history, J3 delinquency, J4 access denied, J5 grounded answer with citations; 16 scenarios, green locally (real LLM) and in CI run [42927278133](https://github.com/akr12403/mortgage-platform/actions/runs/42927278133); `publish` waits for `e2e-tests` | [features](tests/e2e/features/), [`ci.yml`](.github/workflows/ci.yml) |
+| 10.4 Production readiness | Done (PR #118): 12-item checklist with evidence, dry run, re-scan (0 findings), performance smoke (payment p95 209 ms, 0 errors), backup/restore check, rollback | [production readiness](docs/operations/production-readiness.md) |
+| 10.5 Final demonstration | Script and driver done; technical dry run 20/20 checks | [final demo script](docs/operations/final-demo-script.md), `python3 scripts/final-demo.py --pause` |
+| 10.6 Operational handover | Done: runbook *Common failures*, KT checklist, known issues; go-live recommendation **GO with conditions** | [KT checklist](docs/operations/kt-checklist.md), [known issues](docs/operations/known-issues.md), [go-live](docs/operations/production-readiness.md#appendix-go-live-recommendation) |
+| Release | `v1.0.0-capstone-rc1` on `develop`; `v1.0.0-capstone` on `main` after the review | tags |
+
+Review: Sumanth Donur (sign-off boxes in the readiness review and the demo script). Not production-ready for real borrower data until go-live conditions C-1 to C-6 are met.
 
 ## 🛠️ Local Development & Reset Workflow
 To reset and seed your local PostgreSQL environment:
