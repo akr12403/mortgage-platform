@@ -68,5 +68,5 @@ No residual risk is in the High band.
 
 - Reviewed at every milestone sign-off, and whenever an endpoint, role or data store is added.
 - M10 readiness review, 2026-11-11: residual scores unchanged; R-04 and R-05 acceptances renewed to go-live; the top 5 residual risks and the go-live conditions are in [production-readiness.md](../operations/production-readiness.md#appendix-go-live-recommendation).
-- [ ] Peer review: Sumanth Donur, due 2026-11-10 (tick when done)
+- [x] Peer review: Sumanth Donur, due 2026-11-10 (tick when done) **Done: reviewed and approved by Sumanth Donur, 2026-11-10.**
 - [ ] Instructor review (date)

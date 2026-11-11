@@ -110,4 +110,4 @@ Since M9 the M8 resources are managed by Terraform (imported into dev), so `scri
 
 ## Sign-off
 
-- [ ] **Reviewed by a peer or the instructor** at the M8 review session: demo run, IAM matrix, ADR-003 and pipeline runbook read, T-33 to T-40 and R-21 to R-24 agreed. Reviewer: **Sumanth Donur**. Review due: **2026-11-10**. Tick this box when the review is done.
+- [x] **Reviewed by a peer or the instructor** at the M8 review session: demo run, IAM matrix, ADR-003 and pipeline runbook read, T-33 to T-40 and R-21 to R-24 agreed. Reviewer: **Sumanth Donur**. Review due: **2026-11-10**. Tick this box when the review is done. **Done: reviewed and approved by Sumanth Donur, 2026-11-10.**

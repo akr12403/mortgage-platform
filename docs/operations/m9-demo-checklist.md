@@ -72,7 +72,7 @@ Have these open in the browser:
 
 ## Sign-off
 
-- [ ] **Reviewed by a peer or the instructor** at the M9 review: demo run, cicd.md, terraform.md, observability.md, slo.md, RCA and incident-response read. Reviewer: **Sumanth Donur**. Review due: **2026-11-10**. Tick this box when the review is done.
+- [x] **Reviewed by a peer or the instructor** at the M9 review: demo run, cicd.md, terraform.md, observability.md, slo.md, RCA and incident-response read. Reviewer: **Sumanth Donur**. Review due: **2026-11-10**. Tick this box when the review is done. **Done: reviewed and approved by Sumanth Donur, 2026-11-10.**
 
 ## After the final demo: cleanup
 

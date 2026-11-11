@@ -17,7 +17,7 @@ The Enterprise Mortgage Platform is an event-driven, microservices-based system 
 | **M7** | AI / RAG Assistant | 9 | `docs/milestones/m07.md` | **Completed** |
 | **M8** | AWS & Data Platform | 10 | `docs/milestones/m08.md` | **Completed** |
 | **M9** | CI/CD, Terraform, Observability | 11 | `docs/milestones/m09.md` | **Completed** |
-| **M10** | Testing & Production Readiness | 12 | `docs/milestones/m10.md` | **Completed** (review pending) |
+| **M10** | Testing & Production Readiness | 12 | `docs/milestones/m10.md` | **Completed** |
 
 ---
 
@@ -333,9 +333,9 @@ Deviations (all recorded in the checklist): GitHub Actions instead of GitLab, de
 | 10.4 Production readiness | Done (PR #118): 12-item checklist with evidence, dry run, re-scan (0 findings), performance smoke (payment p95 209 ms, 0 errors), backup/restore check, rollback | [production readiness](docs/operations/production-readiness.md) |
 | 10.5 Final demonstration | Script and driver done; technical dry run 20/20 checks | [final demo script](docs/operations/final-demo-script.md), `python3 scripts/final-demo.py --pause` |
 | 10.6 Operational handover | Done: runbook *Common failures*, KT checklist, known issues; go-live recommendation **GO with conditions** | [KT checklist](docs/operations/kt-checklist.md), [known issues](docs/operations/known-issues.md), [go-live](docs/operations/production-readiness.md#appendix-go-live-recommendation) |
-| Release | `v1.0.0-capstone-rc1` on `develop`; `v1.0.0-capstone` on `main` after the review | tags |
+| Release | `v1.0.0-capstone-rc1` on `develop` (images published, [digests](docs/operations/production-readiness.md#release-candidate)); `v1.0.0-capstone` on `main` | tags |
 
-Review: Sumanth Donur (sign-off boxes in the readiness review and the demo script). Not production-ready for real borrower data until go-live conditions C-1 to C-6 are met.
+Reviewed and approved by Sumanth Donur, 2026-11-10 (M6–M10 sign-off boxes ticked). Not production-ready for real borrower data until go-live conditions C-1 to C-6 are met.
 
 ## 🛠️ Local Development & Reset Workflow
 To reset and seed your local PostgreSQL environment:

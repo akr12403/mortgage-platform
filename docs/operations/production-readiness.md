@@ -5,7 +5,7 @@
 | **Release candidate** | `develop` after PR #117 (`3fab39d`) plus this PR. To be tagged `v1.0.0-capstone-rc1`, then `v1.0.0-capstone` |
 | **Review date** | 2026-11-10/11 (UTC); dry run below |
 | **Prepared by** | akr12403 (single-person team: developer, platform, security and AI lead roles) |
-| **Reviewer** | Sumanth Donur |
+| **Reviewer** | Sumanth Donur: reviewed and approved 2026-11-10 |
 | **Recommendation** | **GO with conditions**: release `v1.0.0-capstone` (synthetic data, dev environment). Not for real borrower data until conditions C-1 to C-6 are met ([appendix](#appendix-go-live-recommendation)) |
 
 ## Readiness checklist
@@ -23,7 +23,7 @@
 | 9 | **Runbook complete** | ✅ | [runbook.md](runbook.md): secrets rotation, startup/deploy/rollback, 5 alerts, common failures (new). Plus [incident-response.md](incident-response.md), [messaging-runbook.md](messaging-runbook.md), [data-pipeline-runbook.md](data-pipeline-runbook.md), [KT checklist](kt-checklist.md) |
 | 10 | **Known issues documented** | ✅ | [known-issues.md](known-issues.md): 18 platform issues with impact, workaround and tracking item, plus 4 developer-machine notes |
 | 11 | **Risk register updated** | ✅ | [risk-register.md](../security/risk-register.md) reviewed 2026-11-11: residual risks unchanged; the R-04 and R-05 acceptances, which ran to M9 sign-off, renewed to go-live with the same conditions |
-| 12 | **Go-live recommendation signed by team** | ⏳ | [Appendix](#appendix-go-live-recommendation). Signed by the team; reviewer sign-off pending (box below) |
+| 12 | **Go-live recommendation signed by team** | ✅ | [Appendix](#appendix-go-live-recommendation). Signed by the team and approved by the reviewer, Sumanth Donur, 2026-11-10 ([sign-off](#sign-off)) |
 
 ## Dry run (Session 35 lab)
 
@@ -117,10 +117,21 @@ All 11 tables match. The scratch database and the dump file are deleted afterwar
 | Knowledge base | Rebuilt from the corpus in Git (`docker compose run --rm knowledge-ingest`) | Re-ingest |
 | Secrets | Not backed up by design: rotated and re-issued | [Runbook: secrets rotation](runbook.md#secrets-rotation) |
 
+## Release candidate
+
+`v1.0.0-capstone-rc1`, tagged on `develop` at `b3ecd6a` (after PR #119), 2026-11-11. Its `ci` run [42938284005](https://github.com/akr12403/mortgage-platform/actions/runs/42938284005) passed every job (gates, container scans, integration, E2E J1–J5) and published the same tested images under the release tag. These are the rollback target of the [rollback plan](#rollback-plan-for-the-release):
+
+| Image (`ghcr.io/akr12403/mortgage-platform/…`) | Digest |
+| --- | --- |
+| `mortgage-service:1.0.0-capstone-rc1` | `sha256:2e34ed384773094f3430f97f34a7138d29850e3236ee08d31d0a5cf3ee407e8c` |
+| `servicing-service:1.0.0-capstone-rc1` | `sha256:a3557f18f09d325d0f394b2269dc7e0801961c43cc9dbde1caa235c6b10faf8c` |
+| `analytics-service:1.0.0-capstone-rc1` | `sha256:ccd9e3e217d76433b93eb77e2bcd6cb52c0f6060ba8d4c85a67ef004301272a9` |
+| `knowledge-assistant:1.0.0-capstone-rc1` | `sha256:86ff28915e1241781a2be5189d596dba291bbbcceb44b701f0dc949b3bf5dacb` |
+
 ## Sign-off
 
 - [x] Prepared and checked by the team (akr12403), 2026-11-11.
-- [ ] **Reviewed by Sumanth Donur.** Tick when the review is done; the recommendation then stands as signed.
+- [x] **Reviewed by Sumanth Donur.** Tick when the review is done; the recommendation then stands as signed. **Done: reviewed and approved by Sumanth Donur, 2026-11-10.**
 
 ---
 
